@@ -36,12 +36,29 @@ export async function askGroq({ systemPrompt, userMessage }) {
   }
 }
 
-function stripBase64Prefix(value = '') {
-  return String(value).replace(/^data:[^;]+;base64,/i, '')
+function normalizeMimeType(mimeType = 'audio/ogg') {
+  return String(mimeType || 'audio/ogg').split(';')[0].trim().toLowerCase() || 'audio/ogg'
+}
+
+function parseAudioBase64(value = '', fallbackMimeType = 'audio/ogg') {
+  const raw = String(value || '').trim()
+  const dataUri = raw.match(/^data:([^;,]+)(?:;[^,]*)*;base64,(.*)$/is)
+
+  if (dataUri) {
+    return {
+      data: dataUri[2].replace(/\s+/g, ''),
+      mimeType: normalizeMimeType(dataUri[1] || fallbackMimeType)
+    }
+  }
+
+  return {
+    data: raw.replace(/\s+/g, ''),
+    mimeType: normalizeMimeType(fallbackMimeType)
+  }
 }
 
 function extensionFromMimeType(mimeType = '') {
-  const clean = String(mimeType).split(';')[0].toLowerCase()
+  const clean = normalizeMimeType(mimeType)
 
   if (clean.includes('mpeg') || clean.includes('mp3')) return 'mp3'
   if (clean.includes('mp4') || clean.includes('m4a')) return 'm4a'
@@ -65,7 +82,7 @@ export async function downloadAudioAsBuffer(audioUrl) {
 
     return {
       buffer: Buffer.from(await response.arrayBuffer()),
-      mimeType: response.headers.get('content-type') || 'audio/ogg'
+      mimeType: normalizeMimeType(response.headers.get('content-type') || 'audio/ogg')
     }
   } catch (error) {
     logger.error('Erro ao baixar áudio', { audioUrl, error })
@@ -76,18 +93,20 @@ export async function downloadAudioAsBuffer(audioUrl) {
 export async function transcribeGroqAudio({ audioBase64, audioUrl, mimeType = 'audio/ogg' }) {
   try {
     let buffer = null
-    let resolvedMimeType = mimeType
+    let resolvedMimeType = normalizeMimeType(mimeType)
 
     if (audioBase64) {
-      buffer = Buffer.from(stripBase64Prefix(audioBase64), 'base64')
+      const parsed = parseAudioBase64(audioBase64, mimeType)
+      buffer = Buffer.from(parsed.data, 'base64')
+      resolvedMimeType = parsed.mimeType
     } else if (audioUrl) {
       const downloaded = await downloadAudioAsBuffer(audioUrl)
       buffer = downloaded.buffer
-      resolvedMimeType = downloaded.mimeType || mimeType
+      resolvedMimeType = normalizeMimeType(downloaded.mimeType || mimeType)
     }
 
-    if (!buffer?.length) {
-      throw new Error('Áudio vazio ou ausente para transcrição')
+    if (!buffer?.length || buffer.length < 64) {
+      throw new Error('Áudio vazio, incompleto ou ausente para transcrição')
     }
 
     const formData = new FormData()
@@ -96,6 +115,12 @@ export async function transcribeGroqAudio({ audioBase64, audioUrl, mimeType = 'a
     formData.append('model', env.GROQ_AUDIO_MODEL)
     formData.append('language', 'pt')
     formData.append('response_format', 'json')
+
+    logger.info('Enviando áudio para transcrição', {
+      mimeType: resolvedMimeType,
+      extension,
+      sizeBytes: buffer.length
+    })
 
     const response = await fetch(GROQ_AUDIO_URL, {
       method: 'POST',

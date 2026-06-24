@@ -411,7 +411,18 @@ export async function handleIncomingMessage(payload) {
     })
 
     if (hasAudio) {
-      const transcription = await prepareAudio(payload)
+      let transcription = null
+
+      try {
+        transcription = await prepareAudio(payload)
+      } catch (error) {
+        logger.error('Falha ao transcrever áudio; respondendo sem retry', { error })
+
+        const reply = 'Não consegui entender esse áudio. Pode reenviar ou mandar em texto?'
+        await safeAppendMemory('conversa', `Usuário: [áudio não transcrito]\nLapa OS: ${reply}`)
+        await sendWhatsAppText(payload.phone, reply)
+        return reply
+      }
 
       if (transcription) {
         message = [message, transcription].filter(Boolean).join('\n')
