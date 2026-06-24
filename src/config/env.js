@@ -7,10 +7,11 @@ const requiredEnv = [
   'OWNER_PHONE',
   'GROQ_API_KEY',
   'GEMINI_API_KEY',
-  'GOOGLE_SERVICE_ACCOUNT_B64',
-  'GOOGLE_SHEETS_ID',
-  'TICKTICK_ACCESS_TOKEN',
-  'REDIS_URL'
+  'REDIS_URL',
+  'MYSQL_HOST',
+  'MYSQL_DATABASE',
+  'MYSQL_USER',
+  'MYSQL_PASSWORD'
 ]
 
 function readEnv(name, fallback = '') {
@@ -60,9 +61,15 @@ export const env = Object.freeze({
   OPENROUTER_SITE_URL: readEnv('OPENROUTER_SITE_URL', 'https://central-lapaos.oopleb.easypanel.host'),
   OPENROUTER_APP_NAME: readEnv('OPENROUTER_APP_NAME', 'Lapa OS'),
   GEMINI_API_KEY: readEnv('GEMINI_API_KEY'),
-  GOOGLE_SERVICE_ACCOUNT_B64: readEnv('GOOGLE_SERVICE_ACCOUNT_B64'),
-  GOOGLE_SHEETS_ID: readEnv('GOOGLE_SHEETS_ID'),
-  TICKTICK_ACCESS_TOKEN: readEnv('TICKTICK_ACCESS_TOKEN'),
   REDIS_URL: readEnv('REDIS_URL', 'redis://localhost:6379'),
-  TICKTICK_API_URL: readEnv('TICKTICK_API_URL', 'https://api.ticktick.com/open/v1')
+  DB_DRIVER: readEnv('DB_DRIVER', 'mysql'),
+  DATABASE_URL: readEnv('DATABASE_URL'),
+  MYSQL_HOST: readEnv('MYSQL_HOST', '127.0.0.1'),
+  MYSQL_PORT: Number(readEnv('MYSQL_PORT', '3306')),
+  MYSQL_DATABASE: readEnv('MYSQL_DATABASE', 'lapaos'),
+  MYSQL_USER: readEnv('MYSQL_USER', 'app_lapa'),
+  MYSQL_PASSWORD: readEnv('MYSQL_PASSWORD'),
+  MYSQL_CONNECTION_LIMIT: Number(readEnv('MYSQL_CONNECTION_LIMIT', '10')),
+  MYSQL_CONNECT_TIMEOUT_MS: Number(readEnv('MYSQL_CONNECT_TIMEOUT_MS', '10000')),
+  MYSQL_SSL: readBoolean('MYSQL_SSL', false)
 })

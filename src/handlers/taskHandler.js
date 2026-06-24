@@ -1,6 +1,7 @@
-import { getAllTickTickTasks, completeTickTickTask, createTickTickTask, deleteTickTickTask } from '../integrations/ticktick.js'
+import { execute, query } from '../integrations/mysql.js'
+import { getOwnerUser } from '../core/user.js'
 import { resolvePendingTask, savePendingTask } from '../core/memory.js'
-import { addDaysToISODate, extractTime, normalizeText, todayISODate, todayISODateFromDate } from '../utils/formatter.js'
+import { addDaysToISODate, DEFAULT_TIMEZONE, extractTime, normalizeText, todayISODate } from '../utils/formatter.js'
 import { logger } from '../utils/logger.js'
 
 const CONTEXT_KEYWORDS = {
@@ -77,9 +78,9 @@ export function askContextQuestion() {
   return [
     'Qual contexto dessa tarefa?',
     '',
-    '1️⃣ 💊 Farma Conde',
-    '2️⃣ 🏢 Centrya',
-    '3️⃣ 🏠 Pessoal'
+    '1. 💊 Farma Conde',
+    '2. 🏢 Centrya',
+    '3. 🏠 Pessoal'
   ].join('\n')
 }
 
@@ -98,19 +99,12 @@ function cleanTag(tag) {
   return value.startsWith('#') ? value : `#${value}`
 }
 
-function taskHasTag(task, tag) {
-  const clean = cleanTag(tag)
-  const expected = clean.replace(/^#/, '')
-  const tags = task.tags || []
-
-  return tags.some((taskTag) => {
-    const normalized = String(taskTag).replace(/^#/, '')
-    return normalized === expected
-  })
+function contextCode(tag) {
+  return cleanTag(tag).replace(/^#/, '')
 }
 
 function isPending(task) {
-  return Number(task.status || 0) !== 2 && !task.completedTime
+  return task.status === 'pending'
 }
 
 function cleanTaskIdentifier(identifier = '') {
@@ -118,7 +112,7 @@ function cleanTaskIdentifier(identifier = '') {
     .replace(/^(cancela|cancelar|cancele|cancelei|deleta|deletar|delete|apaga|apagar|exclui|excluir|remove|remover|conclui|completei|concluir|finaliza|finalizar)\s+/i, '')
     .replace(/^(a|o|as|os|uma|um|essa|esse|isso|isto|esta|este|aquela|aquele)\s+/i, '')
     .replace(/\b(tarefa|agenda|evento)\b/g, '')
-    .replace(/\b(que|q)\s+(vai|tem|tera|ter[aá])\b.*$/i, '')
+    .replace(/\b(que|q)\s+(vai|tem|tera|ter[aã¡])\b.*$/i, '')
     .replace(/\b(hoje|amanha|amanah|as|às|ao|aos)\b.*$/i, '')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -134,7 +128,7 @@ function tokenizeTaskText(value = '') {
 }
 
 function scoreTaskMatch(task, identifier) {
-  if (task.id === identifier) return 100
+  if (String(task.id) === String(identifier)) return 100
 
   const taskTitle = normalizeText(task.title)
   const cleanIdentifier = cleanTaskIdentifier(identifier)
@@ -150,32 +144,36 @@ function scoreTaskMatch(task, identifier) {
   return Math.round((hits / words.length) * 80)
 }
 
-async function findPendingTask(identifier) {
-  const tasks = (await getAllTickTickTasks()).filter(isPending)
-  const matches = tasks
-    .map((task) => ({
-      task,
-      score: scoreTaskMatch(task, identifier)
-    }))
-    .filter((match) => match.score >= 40)
-    .sort((a, b) => b.score - a.score)
+function dbDateTimeFromParts(dateValue, timeValue = '09:00') {
+  if (!dateValue) return null
 
-  return matches[0]?.task || null
+  if (String(dateValue).includes('T')) {
+    return formatDateObjectToDb(new Date(dateValue))
+  }
+
+  const [hour = '09', minute = '00'] = String(timeValue || '09:00').split(':')
+  return `${String(dateValue).slice(0, 10)} ${String(hour).padStart(2, '0')}:${String(minute || '00').padStart(2, '0')}:00`
 }
 
-function isToday(dateValue) {
-  if (!dateValue) return false
-  return todayISODateFromDate(new Date(dateValue)) === todayISODate()
+function formatDateObjectToDb(date, timeZone = DEFAULT_TIMEZONE) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date)
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+
+  return `${byType.year}-${byType.month}-${byType.day} ${byType.hour}:${byType.minute}:${byType.second}`
 }
 
-function isThisWeek(dateValue) {
-  if (!dateValue) return false
-
-  const dueDate = new Date(dateValue)
-  const today = new Date(`${todayISODate()}T00:00:00-03:00`)
-  const sevenDays = 7 * 24 * 60 * 60 * 1000
-
-  return dueDate >= today && dueDate.getTime() - today.getTime() <= sevenDays
+function addMinutesToDbDateTime(value, minutes) {
+  const isoLike = `${String(value).replace(' ', 'T')}-03:00`
+  return formatDateObjectToDb(new Date(new Date(isoLike).getTime() + minutes * 60 * 1000))
 }
 
 function inferDue(text = '') {
@@ -195,6 +193,118 @@ function inferDue(text = '') {
     dueDate: date,
     dueTime: time
   }
+}
+
+function isCalendarIntent(text = '') {
+  return /\b(agenda|evento|reuniao|compromisso|call|consulta)\b/.test(normalizeText(text))
+}
+
+function resolveSchedule(params = {}, title = '', content = '', originalMessage = '') {
+  const baseText = `${title} ${content} ${originalMessage}`
+  const inferredDue = inferDue(baseText)
+  const startDate = params.startDate || params.start_date || params.dataInicio || params.inicioData
+  const startTime = params.startTime || params.start_time || params.horaInicio || params.inicioHora
+  const dueDate = params.dueDate || params.due_date || params.endDate || params.end_date || params.data || inferredDue.dueDate
+  const dueTime = params.dueTime || params.due_time || params.endTime || params.end_time || params.hora || inferredDue.dueTime
+  let startAt = startDate ? dbDateTimeFromParts(startDate, startTime || dueTime || '09:00') : null
+  let dueAt = dueDate ? dbDateTimeFromParts(dueDate, dueTime || startTime || '09:00') : null
+
+  if (!startAt && dueAt && dueTime && isCalendarIntent(baseText)) {
+    startAt = dueAt
+    dueAt = addMinutesToDbDateTime(startAt, 60)
+  }
+
+  return {
+    startAt,
+    dueAt,
+    isAllDay: Boolean(params.isAllDay || params.diaInteiro)
+  }
+}
+
+async function getContextId(tag) {
+  const code = contextCode(tag)
+
+  await execute(
+    `INSERT INTO task_contexts (code, label, active)
+     VALUES (?, ?, 1)
+     ON DUPLICATE KEY UPDATE active = 1`,
+    [code, TAG_META[`#${code}`]?.label || code]
+  )
+
+  const rows = await query(
+    `SELECT id
+     FROM task_contexts
+     WHERE code = ?
+     LIMIT 1`,
+    [code]
+  )
+
+  return rows[0]?.id || null
+}
+
+function readTask(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    status: row.status,
+    contextCode: row.context_code,
+    contextLabel: row.context_label,
+    startAt: row.start_at,
+    dueAt: row.due_at,
+    completedAt: row.completed_at,
+    cancelledAt: row.cancelled_at
+  }
+}
+
+async function getPendingTasks() {
+  const owner = await getOwnerUser()
+  const rows = await query(
+    `SELECT
+       t.id,
+       t.title,
+       t.content,
+       t.status,
+       t.start_at,
+       t.due_at,
+       t.completed_at,
+       t.cancelled_at,
+       c.code AS context_code,
+       c.label AS context_label
+     FROM tasks t
+     LEFT JOIN task_contexts c ON c.id = t.context_id
+     WHERE t.user_id = ?
+       AND t.status = 'pending'
+     ORDER BY COALESCE(t.start_at, t.due_at, t.created_at), t.id`,
+    [owner.id]
+  )
+
+  return rows.map(readTask)
+}
+
+async function findPendingTask(identifier) {
+  const tasks = (await getPendingTasks()).filter(isPending)
+  const matches = tasks
+    .map((task) => ({
+      task,
+      score: scoreTaskMatch(task, identifier)
+    }))
+    .filter((match) => match.score >= 40)
+    .sort((a, b) => b.score - a.score)
+
+  return matches[0]?.task || null
+}
+
+function taskHasTag(task, tag) {
+  return task.contextCode === contextCode(tag)
+}
+
+function formatTaskTime(task) {
+  const value = task.startAt || task.dueAt
+  if (!value) return ''
+
+  const time = String(value).slice(11, 16)
+  return time ? ` (${time})` : ''
 }
 
 function formatGroupedTasks(title, tasks) {
@@ -221,13 +331,13 @@ function formatGroupedTasks(title, tasks) {
 
     const meta = TAG_META[tag]
     sections.push(`${meta.emoji} *${meta.label}*`)
-    sections.push(...groups[tag].map((task) => `- ${task.title}`))
+    sections.push(...groups[tag].map((task) => `- ${task.title}${formatTaskTime(task)}`))
     sections.push('')
   }
 
   if (groups.outros.length) {
     sections.push('📌 *Outros*')
-    sections.push(...groups.outros.map((task) => `- ${task.title}`))
+    sections.push(...groups.outros.map((task) => `- ${task.title}${formatTaskTime(task)}`))
     sections.push('')
   }
 
@@ -237,35 +347,54 @@ function formatGroupedTasks(title, tasks) {
 }
 
 export async function createTask(params = {}, originalMessage = '') {
+  const owner = await getOwnerUser()
   const title = params.title || params.titulo || params.name
   const content = params.content || params.descricao || params.description || ''
   const tag = params.tag ? cleanTag(params.tag) : detectContext(`${title || ''} ${content} ${originalMessage}`)
-  const inferredDue = inferDue(`${title || ''} ${content} ${originalMessage}`)
-  const dueDate = params.dueDate || params.due_date || params.data || inferredDue.dueDate
-  const dueTime = params.dueTime || params.due_time || params.hora || inferredDue.dueTime
 
   if (!title) {
-    return 'Me diz o título da tarefa que você quer criar.'
+    return 'Me diz o titulo da tarefa que voce quer criar.'
   }
+
+  const schedule = resolveSchedule(params, title, content, originalMessage)
 
   if (!tag) {
     await savePendingTask({
       title,
       content,
-      dueDate,
-      dueTime,
+      dueDate: params.dueDate || params.due_date || params.data,
+      dueTime: params.dueTime || params.due_time || params.hora,
+      startDate: params.startDate || params.start_date,
+      startTime: params.startTime || params.start_time,
       originalMessage
     })
 
     return askContextQuestion()
   }
 
-  await createTickTickTask({
+  const contextId = await getContextId(tag)
+
+  const result = await execute(
+    `INSERT INTO tasks
+       (user_id, context_id, title, content, status, priority, start_at, due_at, timezone, is_all_day, source)
+     VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, 'whatsapp')`,
+    [
+      owner.id,
+      contextId,
+      title,
+      content || null,
+      Number(params.priority || params.prioridade || 0),
+      schedule.startAt,
+      schedule.dueAt,
+      DEFAULT_TIMEZONE,
+      schedule.isAllDay ? 1 : 0
+    ]
+  )
+
+  logger.info('Tarefa criada no MySQL', {
+    taskId: result.insertId,
     title,
-    content,
-    dueDate,
-    dueTime,
-    tags: [tag]
+    context: tag
   })
 
   const meta = TAG_META[tag] || { emoji: '📌', label: tag }
@@ -274,13 +403,14 @@ export async function createTask(params = {}, originalMessage = '') {
     '✅ *Tarefa criada*',
     `- ${title}`,
     `- Contexto: ${meta.emoji} ${meta.label}`,
-    dueDate ? `- Data: ${dueDate}${dueTime ? ` ${dueTime}` : ''}` : null
+    schedule.startAt ? `- Inicio: ${schedule.startAt}` : null,
+    schedule.dueAt ? `- Prazo: ${schedule.dueAt}` : null
   ].filter(Boolean).join('\n')
 }
 
 export async function createTasks(items = [], originalMessage = '') {
   if (!Array.isArray(items) || !items.length) {
-    return 'Me diz quais tarefas você quer criar.'
+    return 'Me diz quais tarefas voce quer criar.'
   }
 
   const replies = []
@@ -304,6 +434,8 @@ export async function createTaskFromPending(message, pendingTask) {
     content: pendingTask.content,
     dueDate: pendingTask.dueDate,
     dueTime: pendingTask.dueTime,
+    startDate: pendingTask.startDate,
+    startTime: pendingTask.startTime,
     tag
   }, pendingTask.originalMessage)
 
@@ -312,79 +444,111 @@ export async function createTaskFromPending(message, pendingTask) {
 }
 
 export async function listToday() {
-  const tasks = (await getAllTickTickTasks())
-    .filter(isPending)
-    .filter((task) => isToday(task.dueDate))
+  const owner = await getOwnerUser()
+  const rows = await query(
+    `SELECT
+       t.id,
+       t.title,
+       t.content,
+       t.status,
+       t.start_at,
+       t.due_at,
+       t.completed_at,
+       t.cancelled_at,
+       c.code AS context_code,
+       c.label AS context_label
+     FROM tasks t
+     LEFT JOIN task_contexts c ON c.id = t.context_id
+     WHERE t.user_id = ?
+       AND t.status = 'pending'
+       AND DATE(COALESCE(t.start_at, t.due_at)) = ?
+     ORDER BY COALESCE(t.start_at, t.due_at), t.id`,
+    [owner.id, todayISODate()]
+  )
 
-  return formatGroupedTasks('📋 *Tarefas de hoje*', tasks)
+  return formatGroupedTasks('📋 *Tarefas de hoje*', rows.map(readTask))
 }
 
 export async function listByTag(tag, options = {}) {
+  const owner = await getOwnerUser()
   const selectedTag = cleanTag(tag)
-  let tasks = (await getAllTickTickTasks())
-    .filter((task) => taskHasTag(task, selectedTag))
-
-  if (options.status === 'pending') {
-    tasks = tasks.filter(isPending)
-  }
+  const code = contextCode(selectedTag)
+  const params = [owner.id, code]
+  let periodFilter = ''
 
   if (options.period === 'week' || options.periodo === 'semana') {
-    tasks = tasks.filter((task) => isThisWeek(task.dueDate))
+    periodFilter = 'AND COALESCE(t.start_at, t.due_at) >= NOW() AND COALESCE(t.start_at, t.due_at) < DATE_ADD(NOW(), INTERVAL 7 DAY)'
   }
 
+  const rows = await query(
+    `SELECT
+       t.id,
+       t.title,
+       t.content,
+       t.status,
+       t.start_at,
+       t.due_at,
+       t.completed_at,
+       t.cancelled_at,
+       c.code AS context_code,
+       c.label AS context_label
+     FROM tasks t
+     LEFT JOIN task_contexts c ON c.id = t.context_id
+     WHERE t.user_id = ?
+       AND c.code = ?
+       AND t.status = 'pending'
+       ${periodFilter}
+     ORDER BY COALESCE(t.start_at, t.due_at, t.created_at), t.id`,
+    params
+  )
+
   const meta = TAG_META[selectedTag] || { emoji: '📌', label: selectedTag }
-  return formatGroupedTasks(`${meta.emoji} *Tarefas - ${meta.label}*`, tasks)
+  return formatGroupedTasks(`${meta.emoji} *Tarefas - ${meta.label}*`, rows.map(readTask))
 }
 
 export async function completeTask(identifier) {
   if (!identifier) {
-    return 'Qual tarefa você quer concluir?'
+    return 'Qual tarefa voce quer concluir?'
   }
 
   const found = await findPendingTask(identifier)
 
   if (!found) {
-    return `Não encontrei uma tarefa pendente parecida com *${identifier}*.`
+    return `Nao encontrei uma tarefa pendente parecida com *${identifier}*.`
   }
 
-  logger.info('Concluindo tarefa TickTick', {
-    identifier,
-    title: found.title,
-    projectId: found.projectId,
-    taskId: found.id
-  })
+  await execute(
+    `UPDATE tasks
+     SET status = 'completed',
+         completed_at = NOW()
+     WHERE id = ?`,
+    [found.id]
+  )
 
-  await completeTickTickTask({
-    projectId: found.projectId,
-    taskId: found.id
-  })
-
-  return `✅ Tarefa concluída: *${found.title}*`
+  return `✅ Tarefa concluida: *${found.title}*`
 }
 
 export async function deleteTask(identifier, actionLabel = 'removida') {
   if (!identifier) {
-    return 'Qual tarefa você quer remover?'
+    return 'Qual tarefa voce quer remover?'
   }
 
   const found = await findPendingTask(identifier)
 
   if (!found) {
-    return `Não encontrei uma tarefa pendente parecida com *${identifier}*.`
+    return `Nao encontrei uma tarefa pendente parecida com *${identifier}*.`
   }
 
-  logger.info('Removendo tarefa TickTick', {
-    identifier,
-    actionLabel,
-    title: found.title,
-    projectId: found.projectId,
-    taskId: found.id
-  })
+  const nextStatus = actionLabel === 'cancelada' ? 'cancelled' : 'deleted'
+  const timestampColumn = actionLabel === 'cancelada' ? 'cancelled_at' : 'deleted_at'
 
-  await deleteTickTickTask({
-    projectId: found.projectId,
-    taskId: found.id
-  })
+  await execute(
+    `UPDATE tasks
+     SET status = ?,
+         ${timestampColumn} = NOW()
+     WHERE id = ?`,
+    [nextStatus, found.id]
+  )
 
   return `🗑️ Tarefa ${actionLabel}: *${found.title}*`
 }

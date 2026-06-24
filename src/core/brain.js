@@ -5,6 +5,7 @@ import { askGemini, downloadImageAsBase64 } from '../llm/gemini.js'
 import { askOpenRouter, isOpenRouterEnabled } from '../llm/openrouter.js'
 import { sendWhatsAppText } from '../integrations/whatsapp.js'
 import { getEvolutionMediaBase64 } from '../integrations/evolutionMedia.js'
+import { recordIncomingWhatsAppMessage, recordOutgoingWhatsAppMessage, updateIncomingWhatsAppMessage } from './whatsappLog.js'
 import { addExpense, addRecurrence, getBalance, getBudget, getMonthSummary, getReport } from '../handlers/financeHandler.js'
 import { cancelTask, completeTask, createTask, createTasks, createTaskFromPending, deleteTask, listByTag, listToday, detectContext } from '../handlers/taskHandler.js'
 import { saveMemory, searchMemory } from '../handlers/memoryHandler.js'
@@ -52,8 +53,8 @@ Você não é um assistente genérico. Você conhece o Gabriel profundamente e a
 
 Use ferramentas quando o Gabriel pedir ou quando a intenção for clara.
 
-task -> TickTick
-Gerencia tarefas e compromissos com data/hora.
+task -> MySQL
+Gerencia tarefas, agenda e compromissos no banco interno.
 Sempre aplica uma tag de contexto:
 - #pessoal: vida pessoal, saúde, compras, família, corrida, vôlei
 - #centrya: Centrya, Bicego Hub, clientes, propostas
@@ -67,7 +68,7 @@ Palavras-chave por contexto:
 Se o contexto for ambíguo ao criar tarefa, retorne task.create sem tag para o sistema perguntar:
 "Isso é *pessoal*, *Centrya* ou *Farma Conde*?"
 
-finance -> Google Sheets
+finance -> MySQL
 Registra e consulta dados financeiros:
 - registrar gasto com valor, categoria, descrição e conta
 - consultar saldo, orçamento e gastos do mês
@@ -77,7 +78,7 @@ Registra e consulta dados financeiros:
 Categorias padrão:
 Alimentação, Transporte, Moradia, Saúde, Lazer, Serviços, Cartão, Outros
 
-memory -> Google Sheets
+memory -> MySQL
 Salva e busca informações importantes na memória do Lapa OS.
 Também recebe o contexto recente da conversa.
 
@@ -154,8 +155,8 @@ Ao receber uma mensagem, siga esta ordem:
 ## Capacidades e limites
 
 Você sabe:
-- criar, listar, cancelar, deletar e completar tarefas no TickTick com contexto certo
-- registrar gastos, recorrências e consultar finanças no Sheets
+- criar, listar, cancelar, deletar e completar tarefas no banco interno com contexto certo
+- registrar gastos, recorrências e consultar finanças no banco interno
 - ler foto de nota fiscal e extrair valor/estabelecimento
 - dar resumo financeiro do mês com comparativo
 - listar tarefas do dia agrupadas por contexto
@@ -179,10 +180,9 @@ Formato:
   "params": {},
   "reply": "texto opcional quando tool=none"
 }
-
 Ações:
-- task.create: {"title":"", "tag":"#pessoal|#centrya|#fc", "dueDate":"YYYY-MM-DD", "dueTime":"HH:mm"}
-- task.createMany: {"items":[{"title":"", "tag":"#pessoal|#centrya|#fc", "dueDate":"YYYY-MM-DD", "dueTime":"HH:mm"}]}
+- task.create: {"title":"", "tag":"#pessoal|#centrya|#fc", "dueDate":"YYYY-MM-DD", "dueTime":"HH:mm", "startDate":"YYYY-MM-DD", "startTime":"HH:mm", "endDate":"YYYY-MM-DD", "endTime":"HH:mm"}
+- task.createMany: {"items":[{"title":"", "tag":"#pessoal|#centrya|#fc", "dueDate":"YYYY-MM-DD", "dueTime":"HH:mm", "startDate":"YYYY-MM-DD", "startTime":"HH:mm", "endDate":"YYYY-MM-DD", "endTime":"HH:mm"}]}
 - task.listToday
 - task.listByTag: {"tag":"#pessoal|#centrya|#fc"}
 - task.complete: {"identifier":""}
@@ -202,6 +202,7 @@ Regras técnicas:
 - Deletar/apagar/remover/excluir = task.delete
 - Para completar, cancelar ou deletar, params.identifier deve ser o alvo limpo, sem o verbo de comando
 - Se contexto de tarefa for ambíguo ao criar, omita tag
+- Para agenda/evento/compromisso/reuniao, preserve inicio e fim quando existirem usando startDate/startTime/endDate/endTime.
 - Para imagem de nota/recibo, extraia gasto e use finance.addExpense
 
 ## Contexto da conversa atual
@@ -303,7 +304,7 @@ function buildTaskValidationPrompt() {
   const current = formatLocalDateTime()
 
   return `
-Voce e o validador de acoes do Lapa OS antes de executar comandos no TickTick.
+Voce e o validador de acoes do Lapa OS antes de executar comandos no banco interno.
 Agora em ${current.timeZone}: ${current.date} ${current.time} (${current.isoDate}).
 
 Entrada: mensagem original do usuario e o JSON gerado pelo Groq.
@@ -324,10 +325,10 @@ Regras:
 - Para cancelar/cancele, use task.cancel.
 - Para deletar/apagar/remover/excluir, use task.delete.
 - Para task.complete, task.cancel e task.delete, params.identifier deve ser o alvo limpo, sem o verbo de comando.
-- Para task.create/createMany, preserve titulo, tag, dueDate YYYY-MM-DD e dueTime HH:mm quando estiverem claros.
+- Para task.create/createMany, preserve titulo, tag, dueDate YYYY-MM-DD, dueTime HH:mm, startDate/startTime/endDate/endTime quando estiverem claros.
 - Tags validas: #pessoal, #centrya, #fc. Se o contexto for ambiguo, omita tag.
 - Datas e horarios sempre usam America/Sao_Paulo.
-- Nao bloqueie por identifier curto como "essa reuniao"; preserve o melhor identifier para o backend procurar no TickTick.
+- Nao bloqueie por identifier curto como "essa reuniao"; preserve o melhor identifier para o backend procurar no banco interno.
 - Retorne valid=false somente quando a mensagem nao expressar claramente criar, concluir, cancelar ou deletar tarefa.
 - Se o JSON do Groq ja estiver correto e seguro, devolva o mesmo intent.
 `.trim()
@@ -356,7 +357,7 @@ function getValidatedIntentResponse(validation, fallbackIntent) {
       tool: blockedIntent.tool || 'none',
       action: blockedIntent.action || 'reply',
       params: blockedIntent.params || {},
-      reply: blockedIntent.reply || validation.reply || 'Antes de mexer no TickTick, me confirma exatamente qual tarefa?'
+      reply: blockedIntent.reply || validation.reply || 'Antes de mexer nessa tarefa, me confirma exatamente qual tarefa?'
     }
   }
 
@@ -710,6 +711,11 @@ async function safeAppendMemory(tipo, conteudo) {
   }
 }
 
+async function sendReply(phone, reply) {
+  await sendWhatsAppText(phone, reply)
+  await recordOutgoingWhatsAppMessage({ text: reply })
+}
+
 async function prepareImage({ imageUrl, imageBase64, mimeType }) {
   if (imageBase64) {
     return {
@@ -760,6 +766,7 @@ async function prepareAudio({ audioUrl, audioBase64, audioMimeType, messageId, m
 
 export async function handleIncomingMessage(payload) {
   let message = payload.message || ''
+  let inboundLogId = null
   const hasImage = Boolean(payload.imageUrl || payload.imageBase64)
   const hasAudio = Boolean(payload.hasAudio || payload.audioUrl || payload.audioBase64)
 
@@ -771,6 +778,8 @@ export async function handleIncomingMessage(payload) {
       message: compactText(message, 120)
     })
 
+    inboundLogId = await recordIncomingWhatsAppMessage(payload)
+
     if (hasAudio) {
       let transcription = null
 
@@ -781,12 +790,17 @@ export async function handleIncomingMessage(payload) {
 
         const reply = 'Não consegui entender esse áudio. Pode reenviar ou mandar em texto?'
         await safeAppendMemory('conversa', `Usuário: [áudio não transcrito]\nLapa OS: ${reply}`)
-        await sendWhatsAppText(payload.phone, reply)
+        await updateIncomingWhatsAppMessage(inboundLogId, {
+          processedStatus: 'failed',
+          errorMessage: error.message
+        })
+        await sendReply(payload.phone, reply)
         return reply
       }
 
       if (transcription) {
         message = [message, transcription].filter(Boolean).join('\n')
+        await updateIncomingWhatsAppMessage(inboundLogId, { transcription })
         logger.info('Áudio transcrito', {
           phone: payload.phone,
           transcription: compactText(transcription, 180)
@@ -797,7 +811,8 @@ export async function handleIncomingMessage(payload) {
     if (isDateTimeQuestion(message)) {
       const reply = buildDateTimeReply()
       await safeAppendMemory('conversa', `Usuário: ${message}\nLapa OS: ${reply}`)
-      await sendWhatsAppText(payload.phone, reply)
+      await updateIncomingWhatsAppMessage(inboundLogId, { processedStatus: 'processed' })
+      await sendReply(payload.phone, reply)
       return reply
     }
 
@@ -806,7 +821,8 @@ export async function handleIncomingMessage(payload) {
     if (pendingTask) {
       const reply = await createTaskFromPending(message, pendingTask)
       await safeAppendMemory('conversa', `Usuário: ${message}\nLapa OS: ${reply}`)
-      await sendWhatsAppText(payload.phone, reply)
+      await updateIncomingWhatsAppMessage(inboundLogId, { processedStatus: 'processed' })
+      await sendReply(payload.phone, reply)
       return reply
     }
 
@@ -825,16 +841,22 @@ export async function handleIncomingMessage(payload) {
       intent = fallbackIntent(message, hasImage)
     }
 
+    await updateIncomingWhatsAppMessage(inboundLogId, { intent })
     const reply = await executeIntent(intent, message)
     await safeAppendMemory('conversa', `Usuário: ${message || '[imagem]'}\nLapa OS: ${reply}`)
-    await sendWhatsAppText(payload.phone, reply)
+    await updateIncomingWhatsAppMessage(inboundLogId, { processedStatus: 'processed' })
+    await sendReply(payload.phone, reply)
 
     return reply
   } catch (error) {
     logger.error('Erro ao processar mensagem', { error })
+    await updateIncomingWhatsAppMessage(inboundLogId, {
+      processedStatus: 'failed',
+      errorMessage: error.message
+    })
 
     const reply = formatErrorMessage()
-    await sendWhatsAppText(payload.phone, reply).catch((sendError) => {
+    await sendReply(payload.phone, reply).catch((sendError) => {
       logger.error('Falha ao avisar usuário sobre erro', { sendError })
     })
 

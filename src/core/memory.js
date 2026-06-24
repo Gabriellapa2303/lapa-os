@@ -1,8 +1,7 @@
-import { appendRow, readSheet } from '../integrations/sheets.js'
+import { execute, query } from '../integrations/mysql.js'
+import { getOwnerUser } from './user.js'
 import { compactText, normalizeText } from '../utils/formatter.js'
 import { logger } from '../utils/logger.js'
-
-const MEMORY_SHEET = 'memoria'
 
 function parseJson(value) {
   try {
@@ -12,13 +11,36 @@ function parseJson(value) {
   }
 }
 
+function toMemoryType(tipo = 'fact') {
+  const normalized = normalizeText(tipo)
+
+  if (normalized === 'conversa' || normalized === 'conversation') return 'conversation'
+  if (normalized === 'fato' || normalized === 'fact') return 'fact'
+  if (normalized === 'pending task') return 'pending_task'
+  if (normalized === 'pending task resolved') return 'pending_task_resolved'
+  if (normalized === 'pending_task' || normalized === 'pending_task_resolved') return normalized
+  if (normalized === 'nota' || normalized === 'note') return 'note'
+
+  return 'fact'
+}
+
 export async function loadMemoryRows(limit = 20) {
   try {
-    const rows = await readSheet(MEMORY_SHEET)
-    const dataRows = rows.filter((row) => row[0] && row[0] !== 'timestamp')
-    return dataRows.slice(Math.max(dataRows.length - limit, 0))
+    const owner = await getOwnerUser()
+    const rows = await query(
+      `SELECT created_at AS timestamp, memory_type AS tipo, content AS conteudo
+       FROM memories
+       WHERE user_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT ?`,
+      [owner.id, Number(limit)]
+    )
+
+    return rows
+      .reverse()
+      .map((row) => [row.timestamp, row.tipo, row.conteudo])
   } catch (error) {
-    logger.warn('Não foi possível carregar a memória', { error })
+    logger.warn('Nao foi possivel carregar a memoria do MySQL', { error })
     return []
   }
 }
@@ -32,7 +54,13 @@ export function formatMemoryContext(rows = []) {
 }
 
 export async function appendMemory(tipo, conteudo) {
-  await appendRow(MEMORY_SHEET, [new Date().toISOString(), tipo, conteudo])
+  const owner = await getOwnerUser()
+
+  await execute(
+    `INSERT INTO memories (user_id, memory_type, content)
+     VALUES (?, ?, ?)`,
+    [owner.id, toMemoryType(tipo), conteudo]
+  )
 }
 
 export async function savePendingTask(task) {
@@ -77,9 +105,9 @@ export async function getLatestPendingTask() {
   return null
 }
 
-export async function searchMemoryRows(query, limit = 5) {
+export async function searchMemoryRows(queryText, limit = 5) {
   const rows = await loadMemoryRows(200)
-  const terms = normalizeText(query).split(/\s+/).filter(Boolean)
+  const terms = normalizeText(queryText).split(/\s+/).filter(Boolean)
 
   if (!terms.length) return []
 

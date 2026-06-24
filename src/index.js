@@ -4,6 +4,7 @@ import healthRoutes from './routes/health.js'
 import webhookRoutes from './routes/webhook.js'
 import { createMessageWorker } from './queues/messageWorker.js'
 import { messageQueue, queueConnection, queueEvents } from './queues/messageQueue.js'
+import { closeDbPool } from './integrations/mysql.js'
 import { logger } from './utils/logger.js'
 
 const app = express()
@@ -34,6 +35,7 @@ async function shutdown(signal) {
     await messageQueue.close()
     await queueEvents.close()
     await queueConnection.quit()
+    await closeDbPool()
     process.exit(0)
   })
 }

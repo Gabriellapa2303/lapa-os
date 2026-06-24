@@ -1,6 +1,6 @@
 # Lapa OS
 
-Personal Brain as a Service via WhatsApp, com Express, BullMQ, Redis, Groq, Gemini, TickTick e Google Sheets.
+Personal Brain as a Service via WhatsApp, com Express, BullMQ, Redis, MySQL, Groq, Gemini e Evolution API.
 
 ## Rodar localmente
 
@@ -16,6 +16,8 @@ O servico sobe em `PORT` e expõe:
 - `POST /webhook/whatsapp`
 
 O webhook aceita texto, imagem e audio. Audio e transcrito via Groq antes de entrar no cerebro.
+
+Na v2, tarefas, agenda, memoria, historico do WhatsApp e financeiro sao persistidos no MySQL. TickTick e Google Sheets nao fazem parte do fluxo.
 
 ## LLMs
 
@@ -65,6 +67,20 @@ Se voce usar um Redis criado dentro do EasyPanel, ajuste:
 
 ```env
 REDIS_URL=redis://default:SENHA@NOME_DO_SERVICO_REDIS:6379
+```
+
+Configure tambem o MySQL:
+
+```env
+DB_DRIVER=mysql
+MYSQL_HOST=2.24.78.88
+MYSQL_PORT=3306
+MYSQL_DATABASE=lapaos
+MYSQL_USER=app_lapa
+MYSQL_PASSWORD=sua-senha
+MYSQL_CONNECTION_LIMIT=100
+MYSQL_CONNECT_TIMEOUT_MS=10000
+MYSQL_SSL=false
 ```
 
 Depois de deployar, configure a Evolution API para enviar webhooks para:
