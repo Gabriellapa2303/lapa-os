@@ -1,6 +1,6 @@
 {
   "name": "lapa-os",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Personal Brain as a Service via WhatsApp.",
   "type": "module",
   "main": "src/index.js",
@@ -10,14 +10,16 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "check": "node --check src/index.js"
+    "check": "node --check src/index.js",
+    "db:migrate:mysql": "node scripts/migrate-mysql.mjs"
   },
   "dependencies": {
     "bullmq": "^5.12.15",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "googleapis": "^173.0.0",
-    "ioredis": "^5.4.1"
+    "ioredis": "^5.4.1",
+    "mysql2": "^3.22.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
