@@ -98,3 +98,9 @@ export async function completeTickTickTask({ projectId, taskId }) {
     method: 'POST'
   })
 }
+
+export async function deleteTickTickTask({ projectId, taskId }) {
+  return tickTickRequest(`/task/${projectId}/${taskId}`, {
+    method: 'DELETE'
+  })
+}

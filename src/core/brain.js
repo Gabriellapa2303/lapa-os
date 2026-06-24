@@ -6,7 +6,7 @@ import { askOpenRouter, isOpenRouterEnabled } from '../llm/openrouter.js'
 import { sendWhatsAppText } from '../integrations/whatsapp.js'
 import { getEvolutionMediaBase64 } from '../integrations/evolutionMedia.js'
 import { addExpense, addRecurrence, getBalance, getBudget, getMonthSummary, getReport } from '../handlers/financeHandler.js'
-import { completeTask, createTask, createTasks, createTaskFromPending, listByTag, listToday, detectContext } from '../handlers/taskHandler.js'
+import { cancelTask, completeTask, createTask, createTasks, createTaskFromPending, deleteTask, listByTag, listToday, detectContext } from '../handlers/taskHandler.js'
 import { saveMemory, searchMemory } from '../handlers/memoryHandler.js'
 import { compactText, formatErrorMessage, normalizeText } from '../utils/formatter.js'
 import { logger } from '../utils/logger.js'
@@ -67,7 +67,7 @@ Formato:
 Acoes:
 - task.create: {title, tag?, dueDate?, dueTime?}
 - task.createMany: {items:[{title, tag?, dueDate?, dueTime?}]}
-- task.listToday, task.listByTag {tag}, task.complete {identifier}
+- task.listToday, task.listByTag {tag}, task.complete {identifier}, task.cancel {identifier}, task.delete {identifier}
 - finance.addExpense {value, category?, desc?, account?}
 - finance.getMonthSummary, finance.getBalance, finance.getBudget, finance.getReport
 - memory.save {tipo, conteudo}, memory.search {query}
@@ -78,7 +78,9 @@ Tags:
 - #pessoal: saude, compras, treino, corrida, volei, casa
 
 Se houver mais de uma tarefa/evento na mesma mensagem, use task.createMany.
-Cancelar/cancela/remover tarefa ou evento = task.complete com identifier limpo.
+Concluir/finalizar tarefa ou evento = task.complete.
+Cancelar/cancela tarefa ou evento = task.cancel.
+Deletar/apagar/remover/excluir tarefa ou evento = task.delete.
 Se contexto de tarefa for ambiguo, omita tag.
 Datas e horarios usam America/Sao_Paulo.
 Imagem de nota/recibo: extraia gasto e use finance.addExpense.
@@ -254,13 +256,37 @@ function fallbackIntent(message, hasImage) {
     return { tool: 'task', action: 'listByTag', params: { tag: '#pessoal' } }
   }
 
-  if (/^(conclui|completei|concluir|cancela|cancelar|cancele|finaliza|finalizar|remove|remover)\b/.test(normalized)) {
+  if (/^(conclui|completei|concluir|finaliza|finalizar)\b/.test(normalized)) {
     return {
       tool: 'task',
       action: 'complete',
       params: {
         identifier: message
-          .replace(/^(conclui|completei|concluir|cancela|cancelar|cancele|finaliza|finalizar|remove|remover)\s+/i, '')
+          .replace(/^(conclui|completei|concluir|finaliza|finalizar)\s+/i, '')
+          .trim()
+      }
+    }
+  }
+
+  if (/^(cancela|cancelar|cancele|cancelei)\b/.test(normalized)) {
+    return {
+      tool: 'task',
+      action: 'cancel',
+      params: {
+        identifier: message
+          .replace(/^(cancela|cancelar|cancele|cancelei)\s+/i, '')
+          .trim()
+      }
+    }
+  }
+
+  if (/^(deleta|deletar|delete|apaga|apagar|exclui|excluir|remove|remover)\b/.test(normalized)) {
+    return {
+      tool: 'task',
+      action: 'delete',
+      params: {
+        identifier: message
+          .replace(/^(deleta|deletar|delete|apaga|apagar|exclui|excluir|remove|remover)\s+/i, '')
           .trim()
       }
     }
@@ -367,7 +393,9 @@ async function executeIntent(intent, originalMessage) {
     if (actionKey === 'createmany') return createTasks(params.items || params.tasks, originalMessage)
     if (actionKey === 'listtoday') return listToday(params)
     if (actionKey === 'listbytag') return listByTag(params.tag, params)
-    if (actionKey === 'complete') return completeTask(params.identifier || params.id || params.title)
+    if (actionKey === 'complete' || actionKey === 'completetask' || actionKey === 'done') return completeTask(params.identifier || params.id || params.title)
+    if (actionKey === 'cancel' || actionKey === 'canceltask') return cancelTask(params.identifier || params.id || params.title)
+    if (actionKey === 'delete' || actionKey === 'deletetask' || actionKey === 'remove' || actionKey === 'removetask' || actionKey === 'excluir') return deleteTask(params.identifier || params.id || params.title)
   }
 
   if (tool === 'memory') {

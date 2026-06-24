@@ -1,4 +1,4 @@
-import { getAllTickTickTasks, completeTickTickTask, createTickTickTask } from '../integrations/ticktick.js'
+import { getAllTickTickTasks, completeTickTickTask, createTickTickTask, deleteTickTickTask } from '../integrations/ticktick.js'
 import { resolvePendingTask, savePendingTask } from '../core/memory.js'
 import { addDaysToISODate, extractTime, normalizeText, todayISODate, todayISODateFromDate } from '../utils/formatter.js'
 
@@ -114,7 +114,7 @@ function isPending(task) {
 
 function cleanTaskIdentifier(identifier = '') {
   return normalizeText(identifier)
-    .replace(/^(cancela|cancelar|cancele|conclui|completei|concluir|finaliza|finalizar)\s+/i, '')
+    .replace(/^(cancela|cancelar|cancele|cancelei|deleta|deletar|delete|apaga|apagar|exclui|excluir|remove|remover|conclui|completei|concluir|finaliza|finalizar)\s+/i, '')
     .replace(/^(a|o|as|os|uma|um)\s+/i, '')
     .replace(/\b(tarefa|agenda|evento)\b/g, '')
     .replace(/\b(que|q)\s+(vai|tem|tera|ter[aá])\b.*$/i, '')
@@ -124,7 +124,7 @@ function cleanTaskIdentifier(identifier = '') {
 }
 
 function tokenizeTaskText(value = '') {
-  const ignored = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'com', 'de', 'da', 'do', 'das', 'dos', 'para', 'pra', 'que', 'vai', 'ter', 'tera', 'tarefa', 'agenda', 'evento'])
+  const ignored = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'com', 'de', 'da', 'do', 'das', 'dos', 'para', 'pra', 'que', 'vai', 'ter', 'tera', 'tarefa', 'agenda', 'evento', 'cancela', 'cancelar', 'deleta', 'delete', 'apaga', 'exclui', 'remove', 'conclui'])
 
   return cleanTaskIdentifier(value)
     .split(/\s+/)
@@ -146,6 +146,19 @@ function scoreTaskMatch(task, identifier) {
 
   const hits = words.filter((word) => taskTitle.includes(word)).length
   return Math.round((hits / words.length) * 80)
+}
+
+async function findPendingTask(identifier) {
+  const tasks = (await getAllTickTickTasks()).filter(isPending)
+  const matches = tasks
+    .map((task) => ({
+      task,
+      score: scoreTaskMatch(task, identifier)
+    }))
+    .filter((match) => match.score >= 45)
+    .sort((a, b) => b.score - a.score)
+
+  return matches[0]?.task || null
 }
 
 function isToday(dateValue) {
@@ -326,16 +339,7 @@ export async function completeTask(identifier) {
     return 'Qual tarefa você quer concluir?'
   }
 
-  const tasks = (await getAllTickTickTasks()).filter(isPending)
-  const matches = tasks
-    .map((task) => ({
-      task,
-      score: scoreTaskMatch(task, identifier)
-    }))
-    .filter((match) => match.score >= 45)
-    .sort((a, b) => b.score - a.score)
-
-  const found = matches[0]?.task
+  const found = await findPendingTask(identifier)
 
   if (!found) {
     return `Não encontrei uma tarefa pendente parecida com *${identifier}*.`
@@ -347,4 +351,27 @@ export async function completeTask(identifier) {
   })
 
   return `✅ Tarefa concluída: *${found.title}*`
+}
+
+export async function deleteTask(identifier, actionLabel = 'removida') {
+  if (!identifier) {
+    return 'Qual tarefa você quer remover?'
+  }
+
+  const found = await findPendingTask(identifier)
+
+  if (!found) {
+    return `Não encontrei uma tarefa pendente parecida com *${identifier}*.`
+  }
+
+  await deleteTickTickTask({
+    projectId: found.projectId,
+    taskId: found.id
+  })
+
+  return `🗑️ Tarefa ${actionLabel}: *${found.title}*`
+}
+
+export async function cancelTask(identifier) {
+  return deleteTask(identifier, 'cancelada')
 }
