@@ -1,0 +1,25 @@
+{
+  "name": "lapa-os",
+  "version": "0.1.0",
+  "description": "Personal Brain as a Service via WhatsApp.",
+  "type": "module",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "check": "node --check src/index.js"
+  },
+  "dependencies": {
+    "bullmq": "^5.12.15",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "googleapis": "^173.0.0",
+    "ioredis": "^5.4.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
