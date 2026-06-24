@@ -178,6 +178,20 @@ function isThisWeek(dateValue) {
   return dueDate >= today && dueDate.getTime() - today.getTime() <= sevenDays
 }
 
+const WEEKDAY_MAP = {
+  domingo: 0, segunda: 1, 'segunda-feira': 1, terca: 2, 'terça': 2, 'terca-feira': 2, 'terça-feira': 2,
+  quarta: 3, 'quarta-feira': 3, quinta: 4, 'quinta-feira': 4,
+  sexta: 5, 'sexta-feira': 5, sabado: 6, 'sábado': 6
+}
+
+function nextWeekday(targetDay) {
+  const today = new Date()
+  const todayDay = today.getDay()
+  let diff = targetDay - todayDay
+  if (diff <= 0) diff += 7
+  return addDaysToISODate(todayISODate(), diff)
+}
+
 function inferDue(text = '') {
   const normalized = normalizeText(text)
   const time = extractTime(text)
@@ -185,10 +199,18 @@ function inferDue(text = '') {
 
   if (normalized.includes('hoje')) {
     date = todayISODate()
-  }
-
-  if (!date && normalized.includes('amanha')) {
+  } else if (normalized.includes('amanha') || normalized.includes('amanhã')) {
     date = addDaysToISODate(todayISODate(), 1)
+  } else if (normalized.includes('semana que vem') || normalized.includes('proxima semana') || normalized.includes('próxima semana')) {
+    date = addDaysToISODate(todayISODate(), 7)
+  } else {
+    // Detecta dia da semana: "sexta", "na quinta", "segunda às 10h"
+    for (const [name, dayNum] of Object.entries(WEEKDAY_MAP)) {
+      if (normalized.includes(name)) {
+        date = nextWeekday(dayNum)
+        break
+      }
+    }
   }
 
   return {

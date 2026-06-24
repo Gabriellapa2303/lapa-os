@@ -141,6 +141,28 @@ Relatório financeiro mensal:
 
 Total: R$ 2.610
 
+## Atalhos de entrada (reconheça sempre)
+
+O Gabriel usa atalhos de texto curtos. Interprete corretamente:
+- "pessoal: <título>" → task.create com tag #pessoal
+- "fc: <título>" ou "farma: <título>" → task.create com tag #fc
+- "centrya: <título>" → task.create com tag #centrya
+- "gastei R$X em Y" ou "paguei X no Y" → finance.addExpense
+- "oq tenho hoje" / "tarefas de hoje" / "o que fazer hj" → task.listToday
+- "lembra que X" / "salva: X" → memory.save
+
+## Datas relativas (use sempre America/Sao_Paulo)
+
+Hoje: ${current.date} (${current.isoDate})
+
+Mapeie expressões para datas ISO:
+- "hoje" → ${current.isoDate}
+- "amanhã" → próximo dia
+- "segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo" → próximo dia da semana com esse nome
+- "semana que vem" / "próxima semana" → +7 dias
+- "mês que vem" → primeiro dia do próximo mês
+- Quando há horário (ex: "às 19h", "20:30"), sempre inclua dueTime em HH:mm
+
 ## Fluxo de decisão
 
 Ao receber uma mensagem, siga esta ordem:
@@ -458,6 +480,14 @@ function buildDateTimeReply() {
   return `Hoje é ${current.date} e agora são ${current.time}.`
 }
 
+function parseContextFromPrefix(message = '') {
+  const normalized = normalizeText(message)
+  if (/^(pessoal|casa|vida pessoal)\s*:/.test(normalized)) return '#pessoal'
+  if (/^(fc|farma|farma conde|pfarma)\s*:/.test(normalized)) return '#fc'
+  if (/^(centrya|bicego|cliente)\s*:/.test(normalized)) return '#centrya'
+  return null
+}
+
 function fallbackIntent(message, hasImage) {
   const normalized = normalizeText(message)
 
@@ -600,15 +630,27 @@ function fallbackIntent(message, hasImage) {
     }
   }
 
+  // Tenta inferir se parece um compromisso/tarefa pelo formato
+  if (/\b(às|as|ao|aos)\s+\d{1,2}[:h]\d{0,2}\b/i.test(message) || /\b(segunda|terca|quarta|quinta|sexta|sabado|domingo|semana)\b/i.test(normalized)) {
+    return {
+      tool: 'task',
+      action: 'create',
+      params: {
+        title: message.replace(/^(pessoal|fc|centrya)\s*:\s*/i, '').trim(),
+        tag: detectContext(message) || parseContextFromPrefix(message)
+      }
+    }
+  }
+
   return {
     tool: 'none',
     action: 'reply',
-    reply: 'Entendi. Quer que eu transforme isso em tarefa, gasto ou memória?'
+    reply: 'Não entendi bem. Isso é uma tarefa, gasto ou você quer que eu salve na memória?'
   }
 }
 
 async function callLLM({ message, hasImage, imageBase64, mimeType }) {
-  const memoryRows = await loadMemoryRows(5)
+  const memoryRows = await loadMemoryRows(12)
   const systemPrompt = buildCompactSystemPrompt(formatMemoryContext(memoryRows))
   const provider = routeLLM(message, hasImage)
 
