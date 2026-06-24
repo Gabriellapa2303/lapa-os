@@ -327,7 +327,8 @@ Regras:
 - Para task.create/createMany, preserve titulo, tag, dueDate YYYY-MM-DD e dueTime HH:mm quando estiverem claros.
 - Tags validas: #pessoal, #centrya, #fc. Se o contexto for ambiguo, omita tag.
 - Datas e horarios sempre usam America/Sao_Paulo.
-- Se a acao puder mexer na tarefa errada ou a mensagem estiver ambigua, retorne valid=false e intent tool=none/action=reply pedindo confirmacao curta.
+- Nao bloqueie por identifier curto como "essa reuniao"; preserve o melhor identifier para o backend procurar no TickTick.
+- Retorne valid=false somente quando a mensagem nao expressar claramente criar, concluir, cancelar ou deletar tarefa.
 - Se o JSON do Groq ja estiver correto e seguro, devolva o mesmo intent.
 `.trim()
 }

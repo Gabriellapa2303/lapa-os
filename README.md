@@ -23,7 +23,7 @@ O webhook aceita texto, imagem e audio. Audio e transcrito via Groq antes de ent
 - Gemini: imagem/foto.
 - OpenRouter: opcional para mensagens complexas e fallback quando Groq falhar.
 
-Por padrao o OpenRouter roda em modo gratuito apenas. O modelo precisa terminar com `:free`; se alguem configurar um modelo pago por engano, o app bloqueia e usa o fallback gratuito.
+Por padrao o OpenRouter roda em modo gratuito apenas. Use `openrouter/free` ou modelos que terminem com `:free`; se alguem configurar um modelo pago por engano, o app bloqueia e tenta os fallbacks gratuitos.
 
 Para habilitar OpenRouter:
 
@@ -31,8 +31,9 @@ Para habilitar OpenRouter:
 OPENROUTER_ENABLED=true
 OPENROUTER_API_KEY=sua-openrouter-key
 OPENROUTER_FREE_ONLY=true
-OPENROUTER_MODEL=deepseek/deepseek-chat-v3-0324:free
-OPENROUTER_FREE_FALLBACK_MODEL=deepseek/deepseek-r1:free
+OPENROUTER_MODEL=openrouter/free
+OPENROUTER_FREE_FALLBACK_MODEL=openrouter/free
+OPENROUTER_FREE_FALLBACK_MODELS=openrouter/free,google/gemma-4-26b-a4b-it:free,google/gemma-4-31b-it:free,qwen/qwen3-next-80b-a3b-instruct:free,nvidia/nemotron-3-super-120b-a12b:free,openai/gpt-oss-20b:free
 OPENROUTER_SITE_URL=https://central-lapaos.oopleb.easypanel.host
 OPENROUTER_APP_NAME=Lapa OS
 ```

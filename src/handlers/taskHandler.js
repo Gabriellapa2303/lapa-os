@@ -1,6 +1,7 @@
 import { getAllTickTickTasks, completeTickTickTask, createTickTickTask, deleteTickTickTask } from '../integrations/ticktick.js'
 import { resolvePendingTask, savePendingTask } from '../core/memory.js'
 import { addDaysToISODate, extractTime, normalizeText, todayISODate, todayISODateFromDate } from '../utils/formatter.js'
+import { logger } from '../utils/logger.js'
 
 const CONTEXT_KEYWORDS = {
   '#fc': [
@@ -115,7 +116,7 @@ function isPending(task) {
 function cleanTaskIdentifier(identifier = '') {
   return normalizeText(identifier)
     .replace(/^(cancela|cancelar|cancele|cancelei|deleta|deletar|delete|apaga|apagar|exclui|excluir|remove|remover|conclui|completei|concluir|finaliza|finalizar)\s+/i, '')
-    .replace(/^(a|o|as|os|uma|um)\s+/i, '')
+    .replace(/^(a|o|as|os|uma|um|essa|esse|isso|isto|esta|este|aquela|aquele)\s+/i, '')
     .replace(/\b(tarefa|agenda|evento)\b/g, '')
     .replace(/\b(que|q)\s+(vai|tem|tera|ter[aá])\b.*$/i, '')
     .replace(/\b(hoje|amanha|amanah|as|às|ao|aos)\b.*$/i, '')
@@ -125,7 +126,7 @@ function cleanTaskIdentifier(identifier = '') {
 }
 
 function tokenizeTaskText(value = '') {
-  const ignored = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'com', 'de', 'da', 'do', 'das', 'dos', 'para', 'pra', 'que', 'vai', 'ter', 'tera', 'tarefa', 'agenda', 'evento', 'cancela', 'cancelar', 'deleta', 'delete', 'apaga', 'exclui', 'remove', 'conclui', 'hoje', 'amanha', 'amanah'])
+  const ignored = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'essa', 'esse', 'isso', 'isto', 'esta', 'este', 'aquela', 'aquele', 'com', 'de', 'da', 'do', 'das', 'dos', 'para', 'pra', 'que', 'vai', 'ter', 'tera', 'tarefa', 'agenda', 'evento', 'cancela', 'cancelar', 'deleta', 'delete', 'apaga', 'exclui', 'remove', 'conclui', 'hoje', 'amanha', 'amanah'])
 
   return cleanTaskIdentifier(value)
     .split(/\s+/)
@@ -346,6 +347,13 @@ export async function completeTask(identifier) {
     return `Não encontrei uma tarefa pendente parecida com *${identifier}*.`
   }
 
+  logger.info('Concluindo tarefa TickTick', {
+    identifier,
+    title: found.title,
+    projectId: found.projectId,
+    taskId: found.id
+  })
+
   await completeTickTickTask({
     projectId: found.projectId,
     taskId: found.id
@@ -364,6 +372,14 @@ export async function deleteTask(identifier, actionLabel = 'removida') {
   if (!found) {
     return `Não encontrei uma tarefa pendente parecida com *${identifier}*.`
   }
+
+  logger.info('Removendo tarefa TickTick', {
+    identifier,
+    actionLabel,
+    title: found.title,
+    projectId: found.projectId,
+    taskId: found.id
+  })
 
   await deleteTickTickTask({
     projectId: found.projectId,
