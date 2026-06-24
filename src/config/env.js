@@ -17,6 +17,11 @@ function readEnv(name, fallback = '') {
   return process.env[name] || fallback
 }
 
+function readBoolean(name, fallback = false) {
+  const value = readEnv(name, String(fallback)).toLowerCase()
+  return ['1', 'true', 'yes', 'sim', 'on'].includes(value)
+}
+
 function readPort() {
   const port = Number(readEnv('PORT', '3000'))
   return Number.isInteger(port) && port > 0 ? port : 3000
@@ -46,6 +51,11 @@ export const env = Object.freeze({
   OWNER_PHONE: readEnv('OWNER_PHONE'),
   GROQ_API_KEY: readEnv('GROQ_API_KEY'),
   GROQ_AUDIO_MODEL: readEnv('GROQ_AUDIO_MODEL', 'whisper-large-v3-turbo'),
+  OPENROUTER_ENABLED: readBoolean('OPENROUTER_ENABLED', Boolean(process.env.OPENROUTER_API_KEY)),
+  OPENROUTER_API_KEY: readEnv('OPENROUTER_API_KEY'),
+  OPENROUTER_MODEL: readEnv('OPENROUTER_MODEL', 'openai/gpt-4o-mini'),
+  OPENROUTER_SITE_URL: readEnv('OPENROUTER_SITE_URL', 'https://central-lapaos.oopleb.easypanel.host'),
+  OPENROUTER_APP_NAME: readEnv('OPENROUTER_APP_NAME', 'Lapa OS'),
   GEMINI_API_KEY: readEnv('GEMINI_API_KEY'),
   GOOGLE_SERVICE_ACCOUNT_B64: readEnv('GOOGLE_SERVICE_ACCOUNT_B64'),
   GOOGLE_SHEETS_ID: readEnv('GOOGLE_SHEETS_ID'),

@@ -17,6 +17,22 @@ O servico sobe em `PORT` e expõe:
 
 O webhook aceita texto, imagem e audio. Audio e transcrito via Groq antes de entrar no cerebro.
 
+## LLMs
+
+- Groq: mensagens curtas e transcricao de audio.
+- Gemini: imagem/foto.
+- OpenRouter: opcional para mensagens complexas e fallback quando Groq falhar.
+
+Para habilitar OpenRouter:
+
+```env
+OPENROUTER_ENABLED=true
+OPENROUTER_API_KEY=sua-openrouter-key
+OPENROUTER_MODEL=openai/gpt-4o-mini
+OPENROUTER_SITE_URL=https://central-lapaos.oopleb.easypanel.host
+OPENROUTER_APP_NAME=Lapa OS
+```
+
 ## Deploy no EasyPanel
 
 Use um **App Service** apontando para este repositorio GitHub.

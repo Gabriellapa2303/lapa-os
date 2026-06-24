@@ -2,6 +2,7 @@ import { routeLLM } from './router.js'
 import { appendMemory, formatMemoryContext, getLatestPendingTask, loadMemoryRows } from './memory.js'
 import { askGroq, transcribeGroqAudio } from '../llm/groq.js'
 import { askGemini, downloadImageAsBase64 } from '../llm/gemini.js'
+import { askOpenRouter, isOpenRouterEnabled } from '../llm/openrouter.js'
 import { sendWhatsAppText } from '../integrations/whatsapp.js'
 import { getEvolutionMediaBase64 } from '../integrations/evolutionMedia.js'
 import { addExpense, addRecurrence, getBalance, getBudget, getMonthSummary, getReport } from '../handlers/financeHandler.js'
@@ -302,10 +303,31 @@ async function callLLM({ message, hasImage, imageBase64, mimeType }) {
     return parseIntent(response)
   }
 
-  const response = await askGroq({
-    systemPrompt,
-    userMessage: message
-  })
+  if (provider === 'openrouter') {
+    const response = await askOpenRouter({
+      systemPrompt,
+      userMessage: message
+    })
+
+    return parseIntent(response)
+  }
+
+  let response
+
+  try {
+    response = await askGroq({
+      systemPrompt,
+      userMessage: message
+    })
+  } catch (error) {
+    if (!isOpenRouterEnabled()) throw error
+
+    logger.warn('Groq falhou; tentando OpenRouter', { error })
+    response = await askOpenRouter({
+      systemPrompt,
+      userMessage: message
+    })
+  }
 
   return parseIntent(response)
 }
