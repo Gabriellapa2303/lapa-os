@@ -5,12 +5,26 @@ function cleanTag(tag) {
   return String(tag || '').replace(/^#/, '')
 }
 
+function sanitizeAccessToken(token) {
+  return String(token || '')
+    .trim()
+    .replace(/&quot;$/g, '')
+    .replace(/^["']|["']$/g, '')
+    .trim()
+}
+
+function redactToken(value) {
+  return String(value || '').replace(/[a-f0-9]{8}-[a-f0-9-]{27,}/gi, '[redacted-token]')
+}
+
 async function tickTickRequest(path, options = {}) {
+  const accessToken = sanitizeAccessToken(env.TICKTICK_ACCESS_TOKEN)
+
   try {
     const response = await fetch(`${env.TICKTICK_API_URL}${path}`, {
       method: options.method || 'GET',
       headers: {
-        Authorization: `Bearer ${env.TICKTICK_ACCESS_TOKEN}`,
+        Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
       body: options.body ? JSON.stringify(options.body) : undefined
@@ -18,7 +32,7 @@ async function tickTickRequest(path, options = {}) {
 
     if (!response.ok) {
       const body = await response.text()
-      throw new Error(`TickTick API ${response.status}: ${body}`)
+      throw new Error(`TickTick API ${response.status}: ${redactToken(body)}`)
     }
 
     if (response.status === 204) return null
