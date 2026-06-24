@@ -118,13 +118,14 @@ function cleanTaskIdentifier(identifier = '') {
     .replace(/^(a|o|as|os|uma|um)\s+/i, '')
     .replace(/\b(tarefa|agenda|evento)\b/g, '')
     .replace(/\b(que|q)\s+(vai|tem|tera|ter[aá])\b.*$/i, '')
-    .replace(/\b(hoje|amanha|as|às|ao|aos)\b.*$/i, '')
+    .replace(/\b(hoje|amanha|amanah|as|às|ao|aos)\b.*$/i, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
 function tokenizeTaskText(value = '') {
-  const ignored = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'com', 'de', 'da', 'do', 'das', 'dos', 'para', 'pra', 'que', 'vai', 'ter', 'tera', 'tarefa', 'agenda', 'evento', 'cancela', 'cancelar', 'deleta', 'delete', 'apaga', 'exclui', 'remove', 'conclui'])
+  const ignored = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'com', 'de', 'da', 'do', 'das', 'dos', 'para', 'pra', 'que', 'vai', 'ter', 'tera', 'tarefa', 'agenda', 'evento', 'cancela', 'cancelar', 'deleta', 'delete', 'apaga', 'exclui', 'remove', 'conclui', 'hoje', 'amanha', 'amanah'])
 
   return cleanTaskIdentifier(value)
     .split(/\s+/)
@@ -155,7 +156,7 @@ async function findPendingTask(identifier) {
       task,
       score: scoreTaskMatch(task, identifier)
     }))
-    .filter((match) => match.score >= 45)
+    .filter((match) => match.score >= 40)
     .sort((a, b) => b.score - a.score)
 
   return matches[0]?.task || null

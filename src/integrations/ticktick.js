@@ -100,7 +100,7 @@ export async function completeTickTickTask({ projectId, taskId }) {
 }
 
 export async function deleteTickTickTask({ projectId, taskId }) {
-  return tickTickRequest(`/task/${projectId}/${taskId}`, {
+  return tickTickRequest(`/project/${projectId}/task/${taskId}`, {
     method: 'DELETE'
   })
 }
