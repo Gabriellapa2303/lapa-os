@@ -135,6 +135,149 @@ function normalizeIntent(intent = {}) {
   }
 }
 
+const MUTATING_TASK_ACTIONS = new Set([
+  'create',
+  'createmany',
+  'complete',
+  'completetask',
+  'done',
+  'cancel',
+  'canceltask',
+  'delete',
+  'deletetask',
+  'remove',
+  'removetask',
+  'excluir'
+])
+
+function getIntentActions(intent) {
+  if (Array.isArray(intent)) return intent
+  if (Array.isArray(intent?.actions)) return intent.actions
+  return intent ? [intent] : []
+}
+
+function isMutatingTaskIntent(intent) {
+  return getIntentActions(intent).some((item) => {
+    const normalized = normalizeIntent(item)
+    return normalized.tool === 'task' && MUTATING_TASK_ACTIONS.has(String(normalized.action).toLowerCase())
+  })
+}
+
+function looksLikeTaskMutationMessage(message = '') {
+  const normalized = normalizeText(message)
+
+  return /^(cria|criar|adiciona|adicionar)\s+(uma\s+)?(tarefa|agenda|evento)\b/.test(normalized) ||
+    normalized.startsWith('tarefa:') ||
+    normalized.startsWith('lembra de') ||
+    /^(conclui|completei|concluir|finaliza|finalizar)\b/.test(normalized) ||
+    /^(cancela|cancelar|cancele|cancelei)\b/.test(normalized) ||
+    /^(deleta|deletar|delete|apaga|apagar|exclui|excluir|remove|remover)\b/.test(normalized)
+}
+
+function summarizeIntentActions(intent) {
+  return getIntentActions(intent).map((item) => {
+    const normalized = normalizeIntent(item)
+    return `${normalized.tool}.${String(normalized.action).toLowerCase()}`
+  })
+}
+
+function buildTaskValidationPrompt() {
+  const current = formatLocalDateTime()
+
+  return `
+Voce e o validador de acoes do Lapa OS antes de executar comandos no TickTick.
+Agora em ${current.timeZone}: ${current.date} ${current.time} (${current.isoDate}).
+
+Entrada: mensagem original do usuario e o JSON gerado pelo Groq.
+Saida: somente JSON valido, sem markdown.
+
+Formato:
+{
+  "valid": true,
+  "intent": {"tool":"task|finance|memory|report|none","action":"...","params":{},"reply":""},
+  "reason": "curto"
+}
+
+Regras:
+- Revise apenas a interpretacao. Nao execute nada.
+- Preserve a intencao do usuario e corrija o JSON do Groq quando necessario.
+- Para criar/adicionar/agendar/lembra de tarefa ou evento, use task.create ou task.createMany.
+- Para concluir/finalizar/marcar como feito, use task.complete.
+- Para cancelar/cancele, use task.cancel.
+- Para deletar/apagar/remover/excluir, use task.delete.
+- Para task.complete, task.cancel e task.delete, params.identifier deve ser o alvo limpo, sem o verbo de comando.
+- Para task.create/createMany, preserve titulo, tag, dueDate YYYY-MM-DD e dueTime HH:mm quando estiverem claros.
+- Tags validas: #pessoal, #centrya, #fc. Se o contexto for ambiguo, omita tag.
+- Datas e horarios sempre usam America/Sao_Paulo.
+- Se a acao puder mexer na tarefa errada ou a mensagem estiver ambigua, retorne valid=false e intent tool=none/action=reply pedindo confirmacao curta.
+- Se o JSON do Groq ja estiver correto e seguro, devolva o mesmo intent.
+`.trim()
+}
+
+function buildValidationUserMessage(message, intent) {
+  return [
+    'Mensagem original:',
+    message || '[vazia]',
+    '',
+    'JSON do Groq:',
+    JSON.stringify(intent)
+  ].join('\n')
+}
+
+function getValidatedIntentResponse(validation, fallbackIntent) {
+  if (validation?.valid === false) {
+    const blockedIntent = validation.intent && typeof validation.intent === 'object' ? validation.intent : {
+      tool: 'none',
+      action: 'reply',
+      params: {}
+    }
+
+    return {
+      ...blockedIntent,
+      tool: blockedIntent.tool || 'none',
+      action: blockedIntent.action || 'reply',
+      params: blockedIntent.params || {},
+      reply: blockedIntent.reply || validation.reply || 'Antes de mexer no TickTick, me confirma exatamente qual tarefa?'
+    }
+  }
+
+  const candidate = validation?.intent || validation?.correctedIntent || validation?.finalIntent || validation
+
+  if (!candidate || (candidate.valid !== undefined && !candidate.tool && !candidate.actions && !Array.isArray(candidate))) {
+    return fallbackIntent
+  }
+
+  return candidate
+}
+
+async function validateGroqTaskIntent(intent, message) {
+  if ((!isMutatingTaskIntent(intent) && !looksLikeTaskMutationMessage(message)) || !isOpenRouterEnabled()) return intent
+
+  try {
+    logger.info('Validando acao de tarefa do Groq no OpenRouter', {
+      actions: summarizeIntentActions(intent)
+    })
+
+    const response = await askOpenRouter({
+      systemPrompt: buildTaskValidationPrompt(),
+      userMessage: buildValidationUserMessage(message, intent)
+    })
+    const validation = parseIntent(response)
+    const reviewedIntent = getValidatedIntentResponse(validation, intent)
+
+    logger.info('OpenRouter validou acao de tarefa', {
+      valid: validation?.valid,
+      reason: validation?.reason,
+      actions: summarizeIntentActions(reviewedIntent)
+    })
+
+    return reviewedIntent || intent
+  } catch (error) {
+    logger.warn('Falha ao validar acao no OpenRouter; usando resposta do Groq', { error })
+    return intent
+  }
+}
+
 function extractAmount(message) {
   const match = String(message).match(/(?:r\$\s*)?(-?\d+(?:[.,]\d{1,2})?)/i)
   return match ? match[1] : null
@@ -385,9 +528,11 @@ async function callLLM({ message, hasImage, imageBase64, mimeType }) {
       systemPrompt,
       userMessage: message
     })
+
+    return parseIntent(response)
   }
 
-  return parseIntent(response)
+  return validateGroqTaskIntent(parseIntent(response), message)
 }
 
 async function executeIntent(intent, originalMessage) {
