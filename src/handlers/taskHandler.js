@@ -112,6 +112,42 @@ function isPending(task) {
   return Number(task.status || 0) !== 2 && !task.completedTime
 }
 
+function cleanTaskIdentifier(identifier = '') {
+  return normalizeText(identifier)
+    .replace(/^(cancela|cancelar|cancele|conclui|completei|concluir|finaliza|finalizar)\s+/i, '')
+    .replace(/^(a|o|as|os|uma|um)\s+/i, '')
+    .replace(/\b(tarefa|agenda|evento)\b/g, '')
+    .replace(/\b(que|q)\s+(vai|tem|tera|ter[aá])\b.*$/i, '')
+    .replace(/\b(hoje|amanha|as|às|ao|aos)\b.*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function tokenizeTaskText(value = '') {
+  const ignored = new Set(['a', 'o', 'as', 'os', 'um', 'uma', 'com', 'de', 'da', 'do', 'das', 'dos', 'para', 'pra', 'que', 'vai', 'ter', 'tera', 'tarefa', 'agenda', 'evento'])
+
+  return cleanTaskIdentifier(value)
+    .split(/\s+/)
+    .filter((word) => word.length > 1 && !ignored.has(word))
+}
+
+function scoreTaskMatch(task, identifier) {
+  if (task.id === identifier) return 100
+
+  const taskTitle = normalizeText(task.title)
+  const cleanIdentifier = cleanTaskIdentifier(identifier)
+
+  if (!cleanIdentifier) return 0
+  if (taskTitle === cleanIdentifier) return 95
+  if (taskTitle.includes(cleanIdentifier) || cleanIdentifier.includes(taskTitle)) return 85
+
+  const words = tokenizeTaskText(identifier)
+  if (!words.length) return 0
+
+  const hits = words.filter((word) => taskTitle.includes(word)).length
+  return Math.round((hits / words.length) * 80)
+}
+
 function isToday(dateValue) {
   if (!dateValue) return false
   return todayISODateFromDate(new Date(dateValue)) === todayISODate()
@@ -290,11 +326,16 @@ export async function completeTask(identifier) {
     return 'Qual tarefa você quer concluir?'
   }
 
-  const normalizedIdentifier = normalizeText(identifier)
   const tasks = (await getAllTickTickTasks()).filter(isPending)
-  const found = tasks.find((task) => {
-    return task.id === identifier || normalizeText(task.title).includes(normalizedIdentifier)
-  })
+  const matches = tasks
+    .map((task) => ({
+      task,
+      score: scoreTaskMatch(task, identifier)
+    }))
+    .filter((match) => match.score >= 45)
+    .sort((a, b) => b.score - a.score)
+
+  const found = matches[0]?.task
 
   if (!found) {
     return `Não encontrei uma tarefa pendente parecida com *${identifier}*.`

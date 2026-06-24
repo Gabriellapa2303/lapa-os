@@ -76,6 +76,7 @@ Tags:
 - #pessoal: saude, compras, treino, corrida, volei, casa
 
 Se houver mais de uma tarefa/evento na mesma mensagem, use task.createMany.
+Cancelar/cancela/remover tarefa ou evento = task.complete com identifier limpo.
 Se contexto de tarefa for ambiguo, omita tag.
 Datas e horarios usam America/Sao_Paulo.
 Imagem de nota/recibo: extraia gasto e use finance.addExpense.
@@ -251,12 +252,14 @@ function fallbackIntent(message, hasImage) {
     return { tool: 'task', action: 'listByTag', params: { tag: '#pessoal' } }
   }
 
-  if (normalized.startsWith('conclui') || normalized.startsWith('completei')) {
+  if (/^(conclui|completei|concluir|cancela|cancelar|cancele|finaliza|finalizar|remove|remover)\b/.test(normalized)) {
     return {
       tool: 'task',
       action: 'complete',
       params: {
-        identifier: message.replace(/^(conclui|completei|concluir)\s+(a\s+)?tarefa\s*/i, '').trim()
+        identifier: message
+          .replace(/^(conclui|completei|concluir|cancela|cancelar|cancele|finaliza|finalizar|remove|remover)\s+/i, '')
+          .trim()
       }
     }
   }
