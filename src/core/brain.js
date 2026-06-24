@@ -3,6 +3,7 @@ import { appendMemory, formatMemoryContext, getLatestPendingTask, loadMemoryRows
 import { askGroq, transcribeGroqAudio } from '../llm/groq.js'
 import { askGemini, downloadImageAsBase64 } from '../llm/gemini.js'
 import { sendWhatsAppText } from '../integrations/whatsapp.js'
+import { getEvolutionMediaBase64 } from '../integrations/evolutionMedia.js'
 import { addExpense, addRecurrence, getBalance, getBudget, getMonthSummary, getReport } from '../handlers/financeHandler.js'
 import { completeTask, createTask, createTasks, createTaskFromPending, listByTag, listToday, detectContext } from '../handlers/taskHandler.js'
 import { saveMemory, searchMemory } from '../handlers/memoryHandler.js'
@@ -385,13 +386,27 @@ async function prepareImage({ imageUrl, imageBase64, mimeType }) {
   }
 }
 
-async function prepareAudio({ audioUrl, audioBase64, audioMimeType }) {
-  if (!audioUrl && !audioBase64) return null
+async function prepareAudio({ audioUrl, audioBase64, audioMimeType, messageId, messageKey }) {
+  if (!audioUrl && !audioBase64 && !messageId && !messageKey?.id) return null
+
+  let resolvedAudioBase64 = audioBase64
+  let resolvedMimeType = audioMimeType || 'audio/ogg'
+
+  if (!resolvedAudioBase64 && (messageId || messageKey?.id)) {
+    const media = await getEvolutionMediaBase64({
+      messageId,
+      messageKey,
+      convertToMp4: false
+    })
+
+    resolvedAudioBase64 = media.base64
+    resolvedMimeType = media.mimeType || resolvedMimeType
+  }
 
   const text = await transcribeGroqAudio({
-    audioUrl,
-    audioBase64,
-    mimeType: audioMimeType || 'audio/ogg'
+    audioUrl: resolvedAudioBase64 ? null : audioUrl,
+    audioBase64: resolvedAudioBase64,
+    mimeType: resolvedMimeType
   })
 
   return text.trim()
@@ -400,7 +415,7 @@ async function prepareAudio({ audioUrl, audioBase64, audioMimeType }) {
 export async function handleIncomingMessage(payload) {
   let message = payload.message || ''
   const hasImage = Boolean(payload.imageUrl || payload.imageBase64)
-  const hasAudio = Boolean(payload.audioUrl || payload.audioBase64)
+  const hasAudio = Boolean(payload.hasAudio || payload.audioUrl || payload.audioBase64)
 
   try {
     logger.info('Processando mensagem recebida', {

@@ -87,6 +87,7 @@ function extractAudio(body = {}, message = {}) {
 
   if (!audioMessage && !isMimeType(mimeType, 'audio/')) {
     return {
+      hasAudio: false,
       audioUrl: null,
       audioBase64: null,
       audioMimeType: null
@@ -94,6 +95,7 @@ function extractAudio(body = {}, message = {}) {
   }
 
   return {
+    hasAudio: true,
     audioUrl: firstDefined(
       audioMessage?.url,
       body.data?.mediaUrl,
@@ -132,7 +134,9 @@ function parseWebhook(body = {}) {
     audioUrl: audio.audioUrl,
     audioBase64: audio.audioBase64,
     audioMimeType: audio.audioMimeType,
+    hasAudio: audio.hasAudio,
     messageId: firstDefined(key.id, data.messageId, body.messageId),
+    messageKey: key,
     fromMe: Boolean(key.fromMe)
   }
 }
@@ -153,7 +157,7 @@ router.post('/webhook/whatsapp', async (req, res) => {
     })
   }
 
-  if (!parsed.message && !parsed.imageUrl && !parsed.imageBase64 && !parsed.audioUrl && !parsed.audioBase64) {
+  if (!parsed.message && !parsed.imageUrl && !parsed.imageBase64 && !parsed.hasAudio && !parsed.audioUrl && !parsed.audioBase64) {
     logger.warn('Webhook ignorado: sem texto, imagem ou áudio', { messageId: parsed.messageId })
 
     return res.status(200).json({

@@ -37,7 +37,13 @@ export async function askGroq({ systemPrompt, userMessage }) {
 }
 
 function normalizeMimeType(mimeType = 'audio/ogg') {
-  return String(mimeType || 'audio/ogg').split(';')[0].trim().toLowerCase() || 'audio/ogg'
+  const clean = String(mimeType || 'audio/ogg').split(';')[0].trim().toLowerCase()
+
+  if (!clean || clean === 'application/octet-stream' || clean === 'binary/octet-stream') {
+    return 'audio/ogg'
+  }
+
+  return clean
 }
 
 function parseAudioBase64(value = '', fallbackMimeType = 'audio/ogg') {
