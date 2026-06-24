@@ -1,6 +1,6 @@
 import { getAllTickTickTasks, completeTickTickTask, createTickTickTask } from '../integrations/ticktick.js'
 import { resolvePendingTask, savePendingTask } from '../core/memory.js'
-import { normalizeText, todayISODate } from '../utils/formatter.js'
+import { addDaysToISODate, extractTime, normalizeText, todayISODate, todayISODateFromDate } from '../utils/formatter.js'
 
 const CONTEXT_KEYWORDS = {
   '#fc': [
@@ -113,33 +113,36 @@ function isPending(task) {
 
 function isToday(dateValue) {
   if (!dateValue) return false
-  return String(dateValue).startsWith(todayISODate())
+  return todayISODateFromDate(new Date(dateValue)) === todayISODate()
 }
 
 function isThisWeek(dateValue) {
   if (!dateValue) return false
 
   const dueDate = new Date(dateValue)
-  const now = new Date()
+  const today = new Date(`${todayISODate()}T00:00:00-03:00`)
   const sevenDays = 7 * 24 * 60 * 60 * 1000
 
-  return dueDate >= new Date(todayISODate()) && dueDate.getTime() - now.getTime() <= sevenDays
+  return dueDate >= today && dueDate.getTime() - today.getTime() <= sevenDays
 }
 
-function inferDueDate(text = '') {
+function inferDue(text = '') {
   const normalized = normalizeText(text)
+  const time = extractTime(text)
+  let date = null
 
   if (normalized.includes('hoje')) {
-    return todayISODate()
+    date = todayISODate()
   }
 
-  if (normalized.includes('amanha')) {
-    const date = new Date()
-    date.setDate(date.getDate() + 1)
-    return date.toISOString().slice(0, 10)
+  if (!date && normalized.includes('amanha')) {
+    date = addDaysToISODate(todayISODate(), 1)
   }
 
-  return null
+  return {
+    dueDate: date,
+    dueTime: time
+  }
 }
 
 function formatGroupedTasks(title, tasks) {
@@ -185,7 +188,9 @@ export async function createTask(params = {}, originalMessage = '') {
   const title = params.title || params.titulo || params.name
   const content = params.content || params.descricao || params.description || ''
   const tag = params.tag ? cleanTag(params.tag) : detectContext(`${title || ''} ${content} ${originalMessage}`)
-  const dueDate = params.dueDate || params.due_date || params.data || inferDueDate(`${title || ''} ${originalMessage}`)
+  const inferredDue = inferDue(`${title || ''} ${content} ${originalMessage}`)
+  const dueDate = params.dueDate || params.due_date || params.data || inferredDue.dueDate
+  const dueTime = params.dueTime || params.due_time || params.hora || inferredDue.dueTime
 
   if (!title) {
     return 'Me diz o título da tarefa que você quer criar.'
@@ -196,6 +201,7 @@ export async function createTask(params = {}, originalMessage = '') {
       title,
       content,
       dueDate,
+      dueTime,
       originalMessage
     })
 
@@ -206,6 +212,7 @@ export async function createTask(params = {}, originalMessage = '') {
     title,
     content,
     dueDate,
+    dueTime,
     tags: [tag]
   })
 
@@ -215,7 +222,7 @@ export async function createTask(params = {}, originalMessage = '') {
     '✅ *Tarefa criada*',
     `- ${title}`,
     `- Contexto: ${meta.emoji} ${meta.label}`,
-    dueDate ? `- Data: ${dueDate}` : null
+    dueDate ? `- Data: ${dueDate}${dueTime ? ` ${dueTime}` : ''}` : null
   ].filter(Boolean).join('\n')
 }
 
@@ -230,6 +237,7 @@ export async function createTaskFromPending(message, pendingTask) {
     title: pendingTask.title,
     content: pendingTask.content,
     dueDate: pendingTask.dueDate,
+    dueTime: pendingTask.dueTime,
     tag
   }, pendingTask.originalMessage)
 

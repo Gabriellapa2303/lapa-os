@@ -38,6 +38,8 @@ if (missing.length > 0) {
 export const env = Object.freeze({
   PORT: readPort(),
   NODE_ENV: nodeEnv,
+  TZ: readEnv('TZ', 'America/Sao_Paulo'),
+  APP_TIMEZONE: readEnv('APP_TIMEZONE', readEnv('TZ', 'America/Sao_Paulo')),
   EVOLUTION_API_URL: readEnv('EVOLUTION_API_URL'),
   EVOLUTION_API_KEY: readEnv('EVOLUTION_API_KEY'),
   EVOLUTION_INSTANCE: readEnv('EVOLUTION_INSTANCE'),

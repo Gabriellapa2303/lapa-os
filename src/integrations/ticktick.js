@@ -1,5 +1,6 @@
 import { env } from '../config/env.js'
 import { logger } from '../utils/logger.js'
+import { extractTime, saoPauloDateTimeToISOString } from '../utils/formatter.js'
 
 function cleanTag(tag) {
   return String(tag || '').replace(/^#/, '')
@@ -45,11 +46,21 @@ async function tickTickRequest(path, options = {}) {
   }
 }
 
-export async function createTickTickTask({ title, content, dueDate, tags = [] }) {
+function formatDueDate(dueDate, dueTime, title = '', content = '') {
+  if (!dueDate) return undefined
+
+  if (String(dueDate).includes('T')) return new Date(dueDate).toISOString()
+
+  const time = dueTime || extractTime(`${title} ${content}`) || '09:00'
+  return saoPauloDateTimeToISOString(dueDate, time)
+}
+
+export async function createTickTickTask({ title, content, dueDate, dueTime, tags = [] }) {
   const body = {
     title,
     content: content || undefined,
-    dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+    dueDate: formatDueDate(dueDate, dueTime, title, content),
+    timeZone: env.APP_TIMEZONE,
     tags: tags.map(cleanTag).filter(Boolean)
   }
 

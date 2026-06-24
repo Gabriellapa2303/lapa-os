@@ -27,6 +27,13 @@ Configuracao recomendada:
 - Proxy port: `3000`
 - Environment: cole as variaveis do `.env`
 
+Defina a timezone do app:
+
+```env
+TZ=America/Sao_Paulo
+APP_TIMEZONE=America/Sao_Paulo
+```
+
 O `.env` real nao deve ir para o Git. Ele ja esta ignorado por `.gitignore` e `.dockerignore`.
 
 Se voce usar um Redis criado dentro do EasyPanel, ajuste:

@@ -100,7 +100,7 @@ function extractAmount(message) {
 
 function cleanTaskTitle(message) {
   return String(message)
-    .replace(/^(cria|criar|adiciona|adicionar)\s+(uma\s+)?tarefa\s*/i, '')
+    .replace(/^(cria|criar|adiciona|adicionar)\s+(uma\s+)?(tarefa|agenda|evento)\s*/i, '')
     .replace(/^tarefa:\s*/i, '')
     .replace(/^lembra\s+de\s+/i, '')
     .trim()
@@ -200,7 +200,7 @@ function fallbackIntent(message, hasImage) {
     }
   }
 
-  if (/^(cria|criar|adiciona|adicionar)\s+(uma\s+)?tarefa/.test(normalized) || normalized.startsWith('tarefa:') || normalized.startsWith('lembra de')) {
+  if (/^(cria|criar|adiciona|adicionar)\s+(uma\s+)?(tarefa|agenda|evento)/.test(normalized) || normalized.startsWith('tarefa:') || normalized.startsWith('lembra de')) {
     return {
       tool: 'task',
       action: 'create',
