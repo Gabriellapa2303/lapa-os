@@ -1,10 +1,10 @@
 import { routeLLM } from './router.js'
 import { appendMemory, formatMemoryContext, getLatestPendingTask, loadMemoryRows } from './memory.js'
-import { askGroq } from '../llm/groq.js'
+import { askGroq, transcribeGroqAudio } from '../llm/groq.js'
 import { askGemini, downloadImageAsBase64 } from '../llm/gemini.js'
 import { sendWhatsAppText } from '../integrations/whatsapp.js'
 import { addExpense, addRecurrence, getBalance, getBudget, getMonthSummary, getReport } from '../handlers/financeHandler.js'
-import { completeTask, createTask, createTaskFromPending, listByTag, listToday, detectContext } from '../handlers/taskHandler.js'
+import { completeTask, createTask, createTasks, createTaskFromPending, listByTag, listToday, detectContext } from '../handlers/taskHandler.js'
 import { saveMemory, searchMemory } from '../handlers/memoryHandler.js'
 import { compactText, formatErrorMessage, normalizeText } from '../utils/formatter.js'
 import { logger } from '../utils/logger.js'
@@ -50,6 +50,37 @@ Para listByTag use params.tag com "#fc", "#centrya" ou "#pessoal".
 Para completar tarefa, use params.identifier.
 
 Contexto recente:
+${memoryContext}
+`.trim()
+}
+
+function buildCompactSystemPrompt(memoryContext) {
+  return `
+Voce e o Lapa OS. Responda em portugues, curto e direto para WhatsApp.
+Retorne somente JSON valido.
+
+Formato:
+{"tool":"task|finance|memory|report|none","action":"...","params":{},"reply":""}
+
+Acoes:
+- task.create: {title, tag?, dueDate?, dueTime?}
+- task.createMany: {items:[{title, tag?, dueDate?, dueTime?}]}
+- task.listToday, task.listByTag {tag}, task.complete {identifier}
+- finance.addExpense {value, category?, desc?, account?}
+- finance.getMonthSummary, finance.getBalance, finance.getBudget, finance.getReport
+- memory.save {tipo, conteudo}, memory.search {query}
+
+Tags:
+- #fc: Farma Conde, PFarma, ClaudIA, CondeMais, AfiliadoBot, JurIA, Pulso
+- #centrya: Centrya, Bicego, cliente, consultoria
+- #pessoal: saude, compras, treino, corrida, volei, casa
+
+Se houver mais de uma tarefa/evento na mesma mensagem, use task.createMany.
+Se contexto de tarefa for ambiguo, omita tag.
+Datas e horarios usam America/Sao_Paulo.
+Imagem de nota/recibo: extraia gasto e use finance.addExpense.
+
+Memoria recente:
 ${memoryContext}
 `.trim()
 }
@@ -104,6 +135,36 @@ function cleanTaskTitle(message) {
     .replace(/^tarefa:\s*/i, '')
     .replace(/^lembra\s+de\s+/i, '')
     .trim()
+}
+
+function cleanTaskSegment(segment) {
+  return String(segment)
+    .replace(/\btag\s+(farmaconde|farma conde|fc|centrya|pessoal)\b/ig, '')
+    .replace(/^\s*e\s+/i, '')
+    .trim()
+}
+
+function buildMultiTaskFallback(message) {
+  const body = cleanTaskTitle(message)
+  const parts = body
+    .split(/\s*[,;]\s*/)
+    .map(cleanTaskSegment)
+    .filter(Boolean)
+
+  if (parts.length < 2) return null
+
+  const tag = detectContext(message)
+
+  return {
+    tool: 'task',
+    action: 'createMany',
+    params: {
+      items: parts.map((title) => ({
+        title,
+        tag
+      }))
+    }
+  }
 }
 
 function fallbackIntent(message, hasImage) {
@@ -201,6 +262,9 @@ function fallbackIntent(message, hasImage) {
   }
 
   if (/^(cria|criar|adiciona|adicionar)\s+(uma\s+)?(tarefa|agenda|evento)/.test(normalized) || normalized.startsWith('tarefa:') || normalized.startsWith('lembra de')) {
+    const multiTask = buildMultiTaskFallback(message)
+    if (multiTask) return multiTask
+
     return {
       tool: 'task',
       action: 'create',
@@ -219,8 +283,8 @@ function fallbackIntent(message, hasImage) {
 }
 
 async function callLLM({ message, hasImage, imageBase64, mimeType }) {
-  const memoryRows = await loadMemoryRows(20)
-  const systemPrompt = buildSystemPrompt(formatMemoryContext(memoryRows))
+  const memoryRows = await loadMemoryRows(8)
+  const systemPrompt = buildCompactSystemPrompt(formatMemoryContext(memoryRows))
   const provider = routeLLM(message, hasImage)
 
   if (provider === 'gemini') {
@@ -243,16 +307,29 @@ async function callLLM({ message, hasImage, imageBase64, mimeType }) {
 }
 
 async function executeIntent(intent, originalMessage) {
+  const actions = Array.isArray(intent) ? intent : intent?.actions
+
+  if (Array.isArray(actions)) {
+    const replies = []
+
+    for (const actionIntent of actions) {
+      replies.push(await executeIntent(actionIntent, originalMessage))
+    }
+
+    return replies.filter(Boolean).join('\n\n')
+  }
+
   const normalized = normalizeIntent(intent)
   const { tool, action, params, reply } = normalized
+  const actionKey = String(action).toLowerCase()
 
   if (tool === 'finance') {
-    if (action === 'addExpense') return addExpense(params)
-    if (action === 'addRecurrence') return addRecurrence(params)
-    if (action === 'getMonthSummary') return getMonthSummary(params)
-    if (action === 'getBalance') return getBalance(params)
-    if (action === 'getBudget') return getBudget(params)
-    if (action === 'getReport') return getReport(params)
+    if (actionKey === 'addexpense') return addExpense(params)
+    if (actionKey === 'addrecurrence') return addRecurrence(params)
+    if (actionKey === 'getmonthsummary') return getMonthSummary(params)
+    if (actionKey === 'getbalance') return getBalance(params)
+    if (actionKey === 'getbudget') return getBudget(params)
+    if (actionKey === 'getreport') return getReport(params)
   }
 
   if (tool === 'report') {
@@ -260,15 +337,16 @@ async function executeIntent(intent, originalMessage) {
   }
 
   if (tool === 'task') {
-    if (action === 'create') return createTask(params, originalMessage)
-    if (action === 'listToday') return listToday(params)
-    if (action === 'listByTag') return listByTag(params.tag, params)
-    if (action === 'complete') return completeTask(params.identifier || params.id || params.title)
+    if (actionKey === 'create') return createTask(params, originalMessage)
+    if (actionKey === 'createmany') return createTasks(params.items || params.tasks, originalMessage)
+    if (actionKey === 'listtoday') return listToday(params)
+    if (actionKey === 'listbytag') return listByTag(params.tag, params)
+    if (actionKey === 'complete') return completeTask(params.identifier || params.id || params.title)
   }
 
   if (tool === 'memory') {
-    if (action === 'save') return saveMemory(params)
-    if (action === 'search') return searchMemory(params)
+    if (actionKey === 'save') return saveMemory(params)
+    if (actionKey === 'search') return searchMemory(params)
   }
 
   return reply || 'Entendi.'
@@ -304,16 +382,42 @@ async function prepareImage({ imageUrl, imageBase64, mimeType }) {
   }
 }
 
+async function prepareAudio({ audioUrl, audioBase64, audioMimeType }) {
+  if (!audioUrl && !audioBase64) return null
+
+  const text = await transcribeGroqAudio({
+    audioUrl,
+    audioBase64,
+    mimeType: audioMimeType || 'audio/ogg'
+  })
+
+  return text.trim()
+}
+
 export async function handleIncomingMessage(payload) {
-  const message = payload.message || ''
+  let message = payload.message || ''
   const hasImage = Boolean(payload.imageUrl || payload.imageBase64)
+  const hasAudio = Boolean(payload.audioUrl || payload.audioBase64)
 
   try {
     logger.info('Processando mensagem recebida', {
       phone: payload.phone,
       hasImage,
+      hasAudio,
       message: compactText(message, 120)
     })
+
+    if (hasAudio) {
+      const transcription = await prepareAudio(payload)
+
+      if (transcription) {
+        message = [message, transcription].filter(Boolean).join('\n')
+        logger.info('Áudio transcrito', {
+          phone: payload.phone,
+          transcription: compactText(transcription, 180)
+        })
+      }
+    }
 
     const pendingTask = await getLatestPendingTask()
 

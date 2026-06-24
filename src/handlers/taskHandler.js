@@ -6,6 +6,7 @@ const CONTEXT_KEYWORDS = {
   '#fc': [
     'pfarma',
     'farma conde',
+    'farmaconde',
     'claudia',
     'condemais',
     'afiliadobot',
@@ -224,6 +225,20 @@ export async function createTask(params = {}, originalMessage = '') {
     `- Contexto: ${meta.emoji} ${meta.label}`,
     dueDate ? `- Data: ${dueDate}${dueTime ? ` ${dueTime}` : ''}` : null
   ].filter(Boolean).join('\n')
+}
+
+export async function createTasks(items = [], originalMessage = '') {
+  if (!Array.isArray(items) || !items.length) {
+    return 'Me diz quais tarefas você quer criar.'
+  }
+
+  const replies = []
+
+  for (const item of items) {
+    replies.push(await createTask(item, originalMessage))
+  }
+
+  return replies.join('\n\n')
 }
 
 export async function createTaskFromPending(message, pendingTask) {

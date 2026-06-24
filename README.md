@@ -15,6 +15,8 @@ O servico sobe em `PORT` e expõe:
 - `GET /health`
 - `POST /webhook/whatsapp`
 
+O webhook aceita texto, imagem e audio. Audio e transcrito via Groq antes de entrar no cerebro.
+
 ## Deploy no EasyPanel
 
 Use um **App Service** apontando para este repositorio GitHub.

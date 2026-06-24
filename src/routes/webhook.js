@@ -15,11 +15,16 @@ function extractMessageText(message = {}) {
     message.conversation,
     message.extendedTextMessage?.text,
     message.imageMessage?.caption,
+    message.audioMessage?.caption,
     message.videoMessage?.caption,
     message.documentMessage?.caption,
     message.documentWithCaptionMessage?.message?.documentMessage?.caption,
     ''
   )
+}
+
+function isMimeType(value, prefix) {
+  return String(value || '').toLowerCase().startsWith(prefix)
 }
 
 function extractImage(body = {}, message = {}) {
@@ -29,6 +34,21 @@ function extractImage(body = {}, message = {}) {
     body.data?.message?.imageMessage,
     body.message?.imageMessage
   )
+  const mimeType = firstDefined(
+    imageMessage?.mimetype,
+    imageMessage?.mimeType,
+    body.data?.mimetype,
+    body.mimeType,
+    ''
+  )
+
+  if (!imageMessage && !isMimeType(mimeType, 'image/')) {
+    return {
+      imageUrl: null,
+      imageBase64: null,
+      mimeType: null
+    }
+  }
 
   return {
     imageUrl: firstDefined(
@@ -45,11 +65,51 @@ function extractImage(body = {}, message = {}) {
       body.base64
     ),
     mimeType: firstDefined(
-      imageMessage?.mimetype,
-      imageMessage?.mimeType,
-      body.data?.mimetype,
-      body.mimeType,
+      mimeType,
       'image/jpeg'
+    )
+  }
+}
+
+function extractAudio(body = {}, message = {}) {
+  const audioMessage = firstDefined(
+    message.audioMessage,
+    body.data?.message?.audioMessage,
+    body.message?.audioMessage
+  )
+  const mimeType = firstDefined(
+    audioMessage?.mimetype,
+    audioMessage?.mimeType,
+    body.data?.mimetype,
+    body.mimeType,
+    ''
+  )
+
+  if (!audioMessage && !isMimeType(mimeType, 'audio/')) {
+    return {
+      audioUrl: null,
+      audioBase64: null,
+      audioMimeType: null
+    }
+  }
+
+  return {
+    audioUrl: firstDefined(
+      audioMessage?.url,
+      body.data?.mediaUrl,
+      body.data?.message?.mediaUrl,
+      body.mediaUrl,
+      body.audioUrl
+    ),
+    audioBase64: firstDefined(
+      audioMessage?.base64,
+      body.data?.base64,
+      body.data?.message?.base64,
+      body.base64
+    ),
+    audioMimeType: firstDefined(
+      mimeType,
+      'audio/ogg'
     )
   }
 }
@@ -61,6 +121,7 @@ function parseWebhook(body = {}) {
   const remoteJid = firstDefined(key.remoteJid, data.remoteJid, body.remoteJid, data.sender, body.sender)
   const phone = normalizePhone(String(remoteJid || '').split('@')[0])
   const image = extractImage(body, message)
+  const audio = extractAudio(body, message)
 
   return {
     phone,
@@ -68,6 +129,9 @@ function parseWebhook(body = {}) {
     imageUrl: image.imageUrl,
     imageBase64: image.imageBase64,
     mimeType: image.mimeType,
+    audioUrl: audio.audioUrl,
+    audioBase64: audio.audioBase64,
+    audioMimeType: audio.audioMimeType,
     messageId: firstDefined(key.id, data.messageId, body.messageId),
     fromMe: Boolean(key.fromMe)
   }
@@ -89,8 +153,8 @@ router.post('/webhook/whatsapp', async (req, res) => {
     })
   }
 
-  if (!parsed.message && !parsed.imageUrl && !parsed.imageBase64) {
-    logger.warn('Webhook ignorado: sem texto ou imagem', { messageId: parsed.messageId })
+  if (!parsed.message && !parsed.imageUrl && !parsed.imageBase64 && !parsed.audioUrl && !parsed.audioBase64) {
+    logger.warn('Webhook ignorado: sem texto, imagem ou áudio', { messageId: parsed.messageId })
 
     return res.status(200).json({
       ok: true,

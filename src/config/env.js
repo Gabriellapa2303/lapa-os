@@ -45,6 +45,7 @@ export const env = Object.freeze({
   EVOLUTION_INSTANCE: readEnv('EVOLUTION_INSTANCE'),
   OWNER_PHONE: readEnv('OWNER_PHONE'),
   GROQ_API_KEY: readEnv('GROQ_API_KEY'),
+  GROQ_AUDIO_MODEL: readEnv('GROQ_AUDIO_MODEL', 'whisper-large-v3-turbo'),
   GEMINI_API_KEY: readEnv('GEMINI_API_KEY'),
   GOOGLE_SERVICE_ACCOUNT_B64: readEnv('GOOGLE_SERVICE_ACCOUNT_B64'),
   GOOGLE_SHEETS_ID: readEnv('GOOGLE_SHEETS_ID'),
