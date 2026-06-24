@@ -274,6 +274,14 @@ async function executeIntent(intent, originalMessage) {
   return reply || 'Entendi.'
 }
 
+async function safeAppendMemory(tipo, conteudo) {
+  try {
+    await appendMemory(tipo, conteudo)
+  } catch (error) {
+    logger.error('Falha ao salvar histórico na memória; mantendo resposta ao usuário', { error })
+  }
+}
+
 async function prepareImage({ imageUrl, imageBase64, mimeType }) {
   if (imageBase64) {
     return {
@@ -311,7 +319,7 @@ export async function handleIncomingMessage(payload) {
 
     if (pendingTask) {
       const reply = await createTaskFromPending(message, pendingTask)
-      await appendMemory('conversa', `Usuário: ${message}\nLapa OS: ${reply}`)
+      await safeAppendMemory('conversa', `Usuário: ${message}\nLapa OS: ${reply}`)
       await sendWhatsAppText(payload.phone, reply)
       return reply
     }
@@ -332,7 +340,7 @@ export async function handleIncomingMessage(payload) {
     }
 
     const reply = await executeIntent(intent, message)
-    await appendMemory('conversa', `Usuário: ${message || '[imagem]'}\nLapa OS: ${reply}`)
+    await safeAppendMemory('conversa', `Usuário: ${message || '[imagem]'}\nLapa OS: ${reply}`)
     await sendWhatsAppText(payload.phone, reply)
 
     return reply
