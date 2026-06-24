@@ -3,6 +3,15 @@ import { env } from '../config/env.js'
 
 let pool
 
+function hasExplicitMysqlConfig() {
+  return Boolean(
+    process.env.MYSQL_HOST ||
+      process.env.MYSQL_USER ||
+      process.env.MYSQL_PASSWORD ||
+      process.env.MYSQL_DATABASE
+  )
+}
+
 function buildPoolConfig() {
   const baseConfig = {
     waitForConnections: true,
@@ -13,7 +22,7 @@ function buildPoolConfig() {
     dateStrings: true
   }
 
-  if (env.DATABASE_URL) {
+  if (env.DATABASE_URL && !hasExplicitMysqlConfig()) {
     return {
       uri: env.DATABASE_URL,
       ...baseConfig,

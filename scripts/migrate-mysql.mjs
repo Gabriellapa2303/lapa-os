@@ -11,10 +11,19 @@ function readBoolean(value, fallback = false) {
   return ['1', 'true', 'yes', 'sim', 'on'].includes(String(value).toLowerCase())
 }
 
+function hasExplicitMysqlConfig() {
+  return Boolean(
+    process.env.MYSQL_HOST ||
+      process.env.MYSQL_USER ||
+      process.env.MYSQL_PASSWORD ||
+      process.env.MYSQL_DATABASE
+  )
+}
+
 function connectionConfig() {
   const connectTimeout = Number(process.env.MYSQL_CONNECT_TIMEOUT_MS || 10000)
 
-  if (process.env.DATABASE_URL) {
+  if (process.env.DATABASE_URL && !hasExplicitMysqlConfig()) {
     return {
       uri: process.env.DATABASE_URL,
       multipleStatements: true,
