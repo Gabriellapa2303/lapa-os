@@ -10,7 +10,7 @@ cp .env.example .env
 npm start
 ```
 
-O servico sobe em `PORT` e expõe:
+O servico sobe em `PORT` e expoe:
 
 - `GET /health`
 - `POST /webhook/whatsapp`
@@ -18,6 +18,8 @@ O servico sobe em `PORT` e expõe:
 O webhook aceita texto, imagem e audio. Audio e transcrito via Groq antes de entrar no cerebro.
 
 Na v2, tarefas, agenda, memoria, historico do WhatsApp e financeiro sao persistidos no MySQL. TickTick e Google Sheets nao fazem parte do fluxo.
+
+Os unicos servicos externos usados em runtime sao IA, Evolution API e Redis.
 
 ## LLMs
 

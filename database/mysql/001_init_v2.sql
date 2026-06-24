@@ -87,9 +87,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   is_all_day TINYINT(1) NOT NULL DEFAULT 0,
   reminders_json JSON NULL,
   repeat_rule VARCHAR(255) NULL,
-  source ENUM('whatsapp', 'manual', 'import', 'ticktick') NOT NULL DEFAULT 'whatsapp',
-  external_provider VARCHAR(60) NULL,
-  external_id VARCHAR(191) NULL,
+  source ENUM('whatsapp', 'manual', 'import') NOT NULL DEFAULT 'whatsapp',
   completed_at DATETIME NULL,
   cancelled_at DATETIME NULL,
   deleted_at DATETIME NULL,
@@ -99,7 +97,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   KEY idx_tasks_user_status_due (user_id, status, due_at),
   KEY idx_tasks_user_start (user_id, start_at),
   KEY idx_tasks_context (context_id),
-  KEY idx_tasks_external (external_provider, external_id),
   FULLTEXT KEY ft_tasks_title_content (title, content),
   CONSTRAINT fk_tasks_user
     FOREIGN KEY (user_id) REFERENCES app_users (id)
