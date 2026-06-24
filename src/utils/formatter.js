@@ -20,7 +20,7 @@ function getDateParts(date = new Date(), timeZone = DEFAULT_TIMEZONE) {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hour12: false
+    hourCycle: 'h23'
   }).formatToParts(date)
 
   return Object.fromEntries(parts.map((part) => [part.type, part.value]))
@@ -38,6 +38,17 @@ export function currentMonth(timeZone = DEFAULT_TIMEZONE) {
 export function todayISODateFromDate(date, timeZone = DEFAULT_TIMEZONE) {
   const byType = getDateParts(date, timeZone)
   return `${byType.year}-${byType.month}-${byType.day}`
+}
+
+export function formatLocalDateTime(date = new Date(), timeZone = DEFAULT_TIMEZONE) {
+  const byType = getDateParts(date, timeZone)
+
+  return {
+    date: `${byType.day}/${byType.month}/${byType.year}`,
+    time: `${byType.hour}:${byType.minute}`,
+    isoDate: `${byType.year}-${byType.month}-${byType.day}`,
+    timeZone
+  }
 }
 
 export function addDaysToISODate(dateValue, days = 0, timeZone = DEFAULT_TIMEZONE) {

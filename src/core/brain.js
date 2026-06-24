@@ -8,10 +8,12 @@ import { getEvolutionMediaBase64 } from '../integrations/evolutionMedia.js'
 import { addExpense, addRecurrence, getBalance, getBudget, getMonthSummary, getReport } from '../handlers/financeHandler.js'
 import { cancelTask, completeTask, createTask, createTasks, createTaskFromPending, deleteTask, listByTag, listToday, detectContext } from '../handlers/taskHandler.js'
 import { saveMemory, searchMemory } from '../handlers/memoryHandler.js'
-import { compactText, formatErrorMessage, normalizeText } from '../utils/formatter.js'
+import { compactText, formatErrorMessage, formatLocalDateTime, normalizeText } from '../utils/formatter.js'
 import { logger } from '../utils/logger.js'
 
 function buildSystemPrompt(memoryContext) {
+  const current = formatLocalDateTime()
+
   return `
 Você é o Lapa OS, o assistente pessoal e segundo cérebro do seu dono.
 
@@ -38,6 +40,7 @@ Regras de tarefas:
 
 Ao criar tarefa, detecte o contexto automaticamente. Se ambíguo, retorne task.create sem tag.
 Responda sempre em português, direto, objetivo e adequado para WhatsApp.
+Agora em ${current.timeZone}: ${current.date} ${current.time} (${current.isoDate}).
 
 Retorne somente JSON válido neste formato:
 {
@@ -57,8 +60,11 @@ ${memoryContext}
 }
 
 function buildCompactSystemPrompt(memoryContext) {
+  const current = formatLocalDateTime()
+
   return `
 Voce e o Lapa OS. Responda em portugues, curto e direto para WhatsApp.
+Agora em ${current.timeZone}: ${current.date} ${current.time} (${current.isoDate}).
 Retorne somente JSON valido.
 
 Formato:
@@ -172,6 +178,24 @@ function buildMultiTaskFallback(message) {
   }
 }
 
+function isDateTimeQuestion(message = '') {
+  const normalized = normalizeText(message)
+  const asksDate = /\b(que|qual)\s+(dia|data)\b/.test(normalized) || normalized.includes('dia e hoje') || normalized.includes('data de hoje')
+  const asksTime = /\b(que|qual)\s+(hora|horas|horario)\b/.test(normalized) ||
+    /\b(hora|horas|horario)\s+(agora|atual)\b/.test(normalized) ||
+    normalized === 'hora' ||
+    normalized === 'horas' ||
+    normalized.includes('data e hora')
+
+  return asksDate || asksTime
+}
+
+function buildDateTimeReply() {
+  const current = formatLocalDateTime()
+
+  return `Hoje é ${current.date} e agora são ${current.time}.`
+}
+
 function fallbackIntent(message, hasImage) {
   const normalized = normalizeText(message)
 
@@ -180,6 +204,14 @@ function fallbackIntent(message, hasImage) {
       tool: 'none',
       action: 'reply',
       reply: 'Recebi a imagem, mas não consegui extrair os dados automaticamente agora.'
+    }
+  }
+
+  if (isDateTimeQuestion(message)) {
+    return {
+      tool: 'none',
+      action: 'reply',
+      reply: buildDateTimeReply()
     }
   }
 
@@ -496,6 +528,13 @@ export async function handleIncomingMessage(payload) {
           transcription: compactText(transcription, 180)
         })
       }
+    }
+
+    if (isDateTimeQuestion(message)) {
+      const reply = buildDateTimeReply()
+      await safeAppendMemory('conversa', `Usuário: ${message}\nLapa OS: ${reply}`)
+      await sendWhatsAppText(payload.phone, reply)
+      return reply
     }
 
     const pendingTask = await getLatestPendingTask()
